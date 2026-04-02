@@ -519,27 +519,33 @@ const App: React.FC = () => {
     newSocket.on('joined-room', ({ roomId, status, isHost, players, selectedOperators, gameState: syncedGameState }) => {
       isNetworkUpdate.current = true;
       setGameState(prev => {
+        // Correctly transition the game mode to show the character selection UI
+        let newGameMode = prev.gameMode;
+        if (prev.gameMode === 'MULTIPLAYER_QUEUE' || !prev.gameMode) {
+          newGameMode = isHost ? 'MULTIPLAYER_HOST' : 'MULTIPLAYER_JOIN';
+        } else if (isHost) {
+          newGameMode = 'MULTIPLAYER_HOST';
+        } else {
+          newGameMode = 'MULTIPLAYER_JOIN';
+        }
+
         const newState = { 
           ...prev, 
           roomId, 
           isHost,
-          gameMode: prev.gameMode === 'MULTIPLAYER_QUEUE' ? 'MULTIPLAYER_QUEUE' : (isHost ? 'MULTIPLAYER_HOST' : 'MULTIPLAYER_JOIN')
+          gameMode: newGameMode
         };
         
-        // Sync players if provided, or reset if it's a new host session to prevent stale data
+        // Sync players if provided
         if (players && Array.isArray(players)) {
           newState.players = players;
-        } else if (isHost && (!prev.roomId || prev.roomId !== roomId)) {
-          newState.players = [];
         }
         
         if (syncedGameState && typeof syncedGameState === 'object') {
           const { isHost: _ih, roomId: _ri, gameMode: _gm, chatMessages: _cm, players: _ps, ...sharedState } = syncedGameState;
-          // Only merge if sharedState actually has keys to avoid wiping data with empty/null state
           if (Object.keys(sharedState).length > 0) {
             Object.assign(newState, sharedState);
           }
-          // Also handle players from syncedGameState if not provided in top-level
           if (_ps && Array.isArray(_ps) && _ps.length > 0) {
             newState.players = _ps;
           }
@@ -559,7 +565,7 @@ const App: React.FC = () => {
       
       setShowJoinRoom(false);
       setShowCharacterSelect(status === 'LOBBY');
-      setIsQueuing(false);
+      setIsQueuing(false); // RELIABLY CLEAR SEARCHING OVERLAY
       setQueuePosition(0);
       setQueueTotal(0);
       

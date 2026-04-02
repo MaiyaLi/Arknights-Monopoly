@@ -201,13 +201,31 @@ async function startServer() {
 
         s.join(roomId);
         socketToRoom.set(pid, roomId);
-        s.emit('joined-room', { 
-          roomId, 
-          status: 'LOBBY', 
-          isHost: idx === 0,
-          players: newRoom.players, // Send CURRENT list
-          selectedOperators: []
-        });
+      }
+    });
+
+    // EMIT TO THE WHOLE ROOM ONCE EVERYONE IS ADDED
+    io.to(roomId).emit('joined-room', { 
+      roomId, 
+      status: 'LOBBY', 
+      isHost: false, // Each client will determine its own isHost in the frontend
+      players: newRoom.players,
+      selectedOperators: []
+    });
+
+    playersToJoin.forEach((pid, idx) => {
+      const s = io.sockets.sockets.get(pid);
+      if (s) {
+        // The first player is technically the host for matchmaking rooms
+        if (idx === 0) {
+          s.emit('joined-room', { 
+            roomId, 
+            status: 'LOBBY', 
+            isHost: true,
+            players: newRoom.players,
+            selectedOperators: []
+          });
+        }
         s.emit('chat-history', []);
       }
     });
@@ -290,7 +308,8 @@ async function startServer() {
       console.log(`User identified: ${name} (${email})`);
     });
 
-    socket.on('join-game', ({ roomId, playerName, playerEmail }) => {
+    socket.on('join-game', ({ roomId: rawRoomId, playerName, playerEmail }) => {
+      const roomId = (rawRoomId || '').toUpperCase();
       const room = rooms.get(roomId);
       if (room) {
         if (room.players.length >= 4 && !room.players.find(p => p.email === playerEmail)) {
