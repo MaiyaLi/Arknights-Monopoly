@@ -169,27 +169,43 @@ async function startServer() {
     const playersToJoin = queue.splice(0, Math.min(queue.length, 4));
     const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     
-    rooms.set(roomId, {
-      players: [],
+    const newRoom = {
+      players: [] as any[],
       expectedPlayerCount: playersToJoin.length,
       gameState: null,
       selectedOperators: [],
       remainingTime: TURN_TIME_LIMIT,
       chatMessages: [],
-      status: 'LOBBY',
+      status: 'LOBBY' as const,
       hostId: playersToJoin[0]
-    });
+    };
+    
+    rooms.set(roomId, newRoom);
 
     playersToJoin.forEach((pid, idx) => {
       const s = io.sockets.sockets.get(pid);
       if (s) {
+        // Find existing user data if possible
+        const email = socketToEmail.get(pid);
+        const userData = email ? users.get(email) : null;
+        
+        const p = {
+          id: pid,
+          name: userData?.name || 'Doctor',
+          email: email || '',
+          isHost: idx === 0,
+          operator: null,
+          status: 'WAITING'
+        };
+        newRoom.players.push(p);
+
         s.join(roomId);
         socketToRoom.set(pid, roomId);
         s.emit('joined-room', { 
           roomId, 
           status: 'LOBBY', 
           isHost: idx === 0,
-          players: [],
+          players: newRoom.players, // Send CURRENT list
           selectedOperators: []
         });
         s.emit('chat-history', []);
@@ -213,8 +229,18 @@ async function startServer() {
     socket.on('host-game', ({ roomId, hostName, hostEmail }) => {
       socket.join(roomId);
       socketToRoom.set(socket.id, roomId);
+      
+      const hostPlayer = {
+        id: socket.id,
+        name: hostName,
+        email: hostEmail,
+        isHost: true,
+        operator: null, // Host must still pick an operator
+        status: 'WAITING'
+      };
+
       rooms.set(roomId, {
-        players: [],
+        players: [hostPlayer],
         gameState: null,
         selectedOperators: [],
         remainingTime: TURN_TIME_LIMIT,
@@ -224,11 +250,12 @@ async function startServer() {
         hostName,
         hostEmail
       });
+
       socket.emit('joined-room', { 
         roomId, 
         status: 'LOBBY', 
         isHost: true,
-        players: [],
+        players: [hostPlayer],
         selectedOperators: []
       });
       console.log(`Manual room created: ${roomId} by ${socket.id}`);
@@ -272,8 +299,21 @@ async function startServer() {
         }
         socket.join(roomId);
         socketToRoom.set(socket.id, roomId);
+        
         const isRejoiningHost = room.hostEmail && room.hostEmail === playerEmail;
         if (isRejoiningHost) room.hostId = socket.id;
+
+        // Add player if not already in (and not rejoining as host which is handled above)
+        if (!room.players.find(p => p.id === socket.id || (playerEmail && p.email === playerEmail))) {
+          room.players.push({
+            id: socket.id,
+            name: playerName,
+            email: playerEmail,
+            isHost: isRejoiningHost,
+            operator: null,
+            status: 'WAITING'
+          });
+        }
 
         socket.emit('joined-room', { 
           roomId, 
