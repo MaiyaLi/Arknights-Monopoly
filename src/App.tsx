@@ -1,0 +1,5029 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Dice5, 
+  User, 
+  TrendingUp, 
+  History, 
+  Settings, 
+  AlertTriangle, 
+  CheckCircle2, 
+  XCircle,
+  Trophy,
+  Shield,
+  Zap,
+  Package,
+  ShieldAlert,
+  ArrowLeftRight,
+  Plus,
+  Minus,
+  Building2,
+  Store,
+  Globe,
+  Wifi,
+  Users,
+  Play,
+  LogOut,
+  Loader2,
+  MessageSquare,
+  ArrowRight,
+  LayoutGrid,
+  ScrollText,
+  Info,
+  Search,
+  Save,
+  Download,
+  Upload,
+  Coins,
+  Smartphone,
+  RotateCw,
+  X,
+  ShieldCheck
+} from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
+import { Player, Tile, GameState, TileType, EventCard, TradeOffer, GameMode } from './types';
+import { TILES, STARTING_ORUNDUM, GO_REWARD, TAX_AMOUNT, JAIL_FEE, PLAYER_COLORS, PLAYER_NAMES, BOARD_SIZE, LGD_CARDS, INTEL_CARDS, OPERATORS, AVATARS } from './constants';
+
+const SOUNDS = {
+  DICE: 'https://assets.mixkit.co/active_storage/sfx/2005/2005-preview.mp3',
+  BUY: 'https://assets.mixkit.co/active_storage/sfx/2017/2017-preview.mp3',
+  RENT: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
+  LAND: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
+  VICTORY: 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3',
+  BANKRUPT: 'https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3',
+  MOVE: 'https://assets.mixkit.co/active_storage/sfx/2001/2001-preview.mp3',
+  ALERT: 'https://assets.mixkit.co/active_storage/sfx/2002/2002-preview.mp3',
+  GO: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
+};
+
+const MAP_IMAGE_URL = '/Resources/Map/Arknight%20Map.png';
+
+const Dice = ({ value, theme, diceIndex }: { value: number; theme: 'lungmen' | 'rhode_island'; diceIndex: number; soundEnabled?: boolean; volume?: number }) => {
+  const diceImagePath = theme === 'lungmen'
+      ? `/Resources/Dices/Die Face/Lungmen DIce/Lungmen Dice ${value || 1}.png`
+      : `/Resources/Dices/Die Face/Rhode Island Dice/Rhode Island Dice ${value || 1}.png`;
+
+  return (
+    <motion.div 
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      className={`w-14 h-14 bg-zinc-900 border-2 rounded-lg flex items-center justify-center relative overflow-hidden group shadow-lg ${
+        theme === 'lungmen' ? 'border-amber-500 shadow-amber-500/20' : 'border-orange-500 shadow-orange-500/20'
+      }`}
+    >
+      <div className={`absolute inset-0 bg-gradient-to-br from-transparent to-transparent pointer-events-none ${
+        theme === 'lungmen' ? 'from-amber-500/10' : 'from-orange-500/10'
+      }`} />
+      
+      <motion.img
+        key={`${theme}-${value}`}
+        src={diceImagePath}
+        alt={`Dice ${value}`}
+        className="w-full h-full object-contain p-1 filter drop-shadow-[0_0_5px_rgba(0,0,0,0.5)]"
+        referrerPolicy="no-referrer"
+      />
+      
+      {/* Decorative corner accents */}
+      <div className={`absolute top-1 left-1 w-1 h-1 rounded-full ${theme === 'lungmen' ? 'bg-amber-500/40' : 'bg-orange-500/40'}`} />
+      <div className={`absolute top-1 right-1 w-1 h-1 rounded-full ${theme === 'lungmen' ? 'bg-amber-500/40' : 'bg-orange-500/40'}`} />
+      <div className={`absolute bottom-1 left-1 w-1 h-1 rounded-full ${theme === 'lungmen' ? 'bg-amber-500/40' : 'bg-orange-500/40'}`} />
+      <div className={`absolute bottom-1 right-1 w-1 h-1 rounded-full ${theme === 'lungmen' ? 'bg-amber-500/40' : 'bg-orange-500/40'}`} />
+    </motion.div>
+  );
+};
+
+const RollingDiceAnimation = () => {
+  const [frame, setFrame] = useState(1);
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrame(f => (f % 8) + 1);
+    }, 60);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <motion.div 
+      animate={{ 
+        rotate: [0, 10, -10, 5, -5, 0],
+        scale: [0.95, 1.05, 0.98, 1.02, 1],
+        x: [0, -1, 1, -0.5, 0.5, 0],
+        y: [0, 0.5, -0.5, 1, -1, 0]
+      }}
+      transition={{ repeat: Infinity, duration: 0.4 }}
+      className="flex items-center justify-center p-2"
+    >
+      <img
+        src={`/Resources/Dices/Rolling Animation/Rolling ${frame}.png`}
+        alt="Rolling..."
+        className="w-16 h-16 object-contain filter drop-shadow-[0_0_10px_rgba(249,115,22,0.4)]"
+        referrerPolicy="no-referrer"
+      />
+    </motion.div>
+  );
+};
+
+const PlayerToken: React.FC<{ player: Player; animationSpeed: number }> = ({ player, animationSpeed }) => {
+  const [frame, setFrame] = useState(4);
+
+  useEffect(() => {
+    let interval: any;
+    if (player.isMoving) {
+      let currentFrame = 1;
+      interval = setInterval(() => {
+        setFrame(currentFrame);
+        currentFrame = (currentFrame % 4) + 1;
+      }, 120 / animationSpeed);
+    } else {
+      setFrame(4);
+    }
+    return () => clearInterval(interval);
+  }, [player.isMoving, animationSpeed]);
+
+  return (
+    <motion.div
+      layoutId={player.id}
+      className="w-6 h-6 md:w-8 md:h-8 relative z-20"
+      initial={{ scale: 0, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ 
+        layout: { 
+          type: "spring", 
+          stiffness: 280, 
+          damping: 24,
+          mass: 0.8
+        }
+      }}
+      exit={{ 
+        scale: 0, 
+        opacity: 0, 
+        rotate: 180,
+        transition: { duration: 0.5, ease: "backIn" }
+      }}
+    >
+      <img 
+        src={`/Resources/Characters/${player.operator.spriteFolder}/${player.operator.spriteBaseName} ${frame}.png`} 
+        alt={player.name} 
+        className="w-full h-full object-contain filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" 
+        referrerPolicy="no-referrer" 
+      />
+      
+      {/* Subtle indicator ring below token */}
+      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-1 bg-black/40 blur-[1px] rounded-[100%] -z-10" />
+    </motion.div>
+  );
+};
+
+const App: React.FC = () => {
+  const [gameState, setGameState] = useState<GameState>({
+    players: [],
+    currentPlayerIndex: 0,
+    dice: [1, 1],
+    isRolling: false,
+    hasRolled: false,
+    message: 'Welcome to Arknights Monopoly.',
+    log: ['Game started.'],
+    selectedTileId: null,
+    activeCard: null,
+    activeTrade: null,
+    activeAuction: null,
+    winner: null,
+    gameStarted: false,
+    gameMode: null,
+    roomId: null,
+    isHost: false,
+    readyPlayers: [],
+    consecutiveDoubles: 0,
+    canRollAgain: false,
+    turnTimer: 45,
+    auctionTimer: 15,
+    turnTimeLimit: 45,
+    lastAiTradeTime: 0,
+    chatMessages: [],
+    tiles: TILES
+  });
+
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [chatInput, setChatInput] = useState('');
+  const [showChat, setShowChat] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [boardScale, setBoardScale] = useState(1);
+
+  const SearchingOverlay = () => (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md"
+    >
+      <div className="w-full max-w-sm flex flex-col items-center gap-8 relative">
+        {/* Animated Radar Effect */}
+        <div className="relative w-48 h-48 flex items-center justify-center">
+          <div className="absolute inset-0 border-2 border-orange-500/20 rounded-full animate-[ping_3s_linear_infinite]" />
+          <div className="absolute inset-4 border border-orange-500/30 rounded-full animate-[ping_2s_linear_infinite]" />
+          <div className="absolute inset-8 border border-orange-500/40 rounded-full animate-[ping_1.5s_linear_infinite]" />
+          <div className="w-24 h-24 rounded-full border-4 border-orange-500 flex items-center justify-center bg-zinc-900 shadow-[0_0_30px_rgba(249,115,22,0.3)]">
+            <Globe className="w-12 h-12 text-orange-500 animate-pulse" />
+          </div>
+        </div>
+
+        <div className="text-center space-y-2">
+          <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white">Scanning <span className="text-orange-500">Signal</span></h2>
+          <p className="text-[10px] text-zinc-500 font-mono tracking-[0.3em] uppercase animate-pulse">Search established: Tracking other Doctors</p>
+        </div>
+
+        <div className="w-full bg-zinc-900/50 border border-zinc-800 p-6 rounded-xl space-y-4">
+          <div className="flex justify-between items-end border-b border-zinc-800 pb-2">
+            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none">Queue Position</label>
+            <div className="text-2xl font-black italic text-orange-500 leading-none">{queuePosition} <span className="text-xs text-zinc-600 not-italic">/ {queueTotal}</span></div>
+          </div>
+          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+            <motion.div 
+              className="h-full bg-orange-500"
+              initial={{ width: "0%" }}
+              animate={{ width: `${(queuePosition / Math.max(1, queueTotal)) * 100}%` }}
+            />
+          </div>
+          <p className="text-[9px] text-zinc-600 font-mono italic text-center">Protocol: Matchmaking will initialize at 2+ Doctors (Max 4).</p>
+        </div>
+
+        <button 
+          onClick={handleLeaveQueue}
+          className="px-8 py-3 bg-red-500/10 border border-red-500/50 text-red-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500 hover:text-black transition-all flex items-center gap-2 group"
+        >
+          <Loader2 className="w-4 h-4 animate-spin group-hover:hidden" />
+          <XCircle className="w-4 h-4 hidden group-hover:block" />
+          Abort Search
+        </button>
+
+        {/* Scanline decoration */}
+        <div className="absolute inset-[-100px] pointer-events-none opacity-[0.05] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
+      </div>
+    </motion.div>
+  );
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
+        // Board is 490x490. We want to leave some padding (e.g., 10px).
+        const availableWidth = width - 20;
+        const availableHeight = height - 20;
+        const scale = Math.max(0.1, Math.min(availableWidth / 490, availableHeight / 490));
+        setBoardScale(scale);
+      }
+    });
+    
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [gameState.gameStarted]);
+
+  const scrollToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [gameState.chatMessages]);
+  const [showCharacterSelect, setShowCharacterSelect] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [activeTab, setActiveTab] = useState<'board' | 'players' | 'log' | 'property'>('board');
+  const [showArchives, setShowArchives] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showGameOver, setShowGameOver] = useState(false);
+  const [showPropertyModal, setShowPropertyModal] = useState(false);
+  const [showMobileTeam, setShowMobileTeam] = useState(false);
+  const [showMobileLog, setShowMobileLog] = useState(false);
+  const [showMobileReport, setShowMobileReport] = useState(false);
+  const [showJoinRoom, setShowJoinRoom] = useState(false);
+  const [joinRoomId, setJoinRoomId] = useState('');
+  const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
+  const [profile, setProfile] = useState(() => {
+    const saved = localStorage.getItem('arknights_monopoly_profile');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse saved profile:', e);
+      }
+    }
+    return {
+      name: 'Doctor',
+      email: '',
+      avatarId: 'avatar_doctor',
+      level: 1,
+      exp: 0,
+      wins: 0,
+      losses: 0,
+      matches: 0
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('arknights_monopoly_profile', JSON.stringify(profile));
+  }, [profile]);
+
+  useEffect(() => {
+    if (socket && profile.email) {
+      socket.emit('identify-user', { email: profile.email, name: profile.name, avatarId: profile.avatarId });
+    }
+  }, [socket]); // Auto-identify on connect if email exists
+  const [settings, setSettings] = useState({
+    volume: 50,
+    soundEnabled: true,
+    animationSpeed: 1, // 0.5, 1, 1.5
+    showGrid: true
+  });
+  const [isMoving, setIsMoving] = useState(false);
+  const tiles = gameState.tiles;
+  const [previewOperator, setPreviewOperator] = useState<any>(null);
+  const [isQueuing, setIsQueuing] = useState(false);
+  const [queuePosition, setQueuePosition] = useState(0);
+  const [queueTotal, setQueueTotal] = useState(0);
+
+  const profileRef = useRef(profile);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  const isNetworkUpdate = useRef(false);
+
+  // Reset network update flag after each render cycle to allow subsequent local actions to sync
+  useEffect(() => {
+    if (isNetworkUpdate.current) {
+      isNetworkUpdate.current = false;
+    }
+  }, [gameState]);
+
+  const playSound = useCallback((soundUrl: string) => {
+    if (!settings.soundEnabled) return;
+    const audio = new Audio(soundUrl);
+    audio.volume = settings.volume / 100;
+    audio.play().catch(e => console.error("Audio play failed:", e));
+  }, [settings.volume, settings.soundEnabled]);
+
+  const saveGame = () => {
+    if (!gameState.gameStarted) {
+      addToLog("Cannot synchronize data: Mission not active.");
+      return;
+    }
+    
+    // Create a serializable version of the state
+    const serializableState = {
+      ...gameState,
+      roomId: null, // Don't save roomId as it's transient
+      isHost: true, // When loading, the loader becomes the host
+      activeCard: gameState.activeCard ? { id: gameState.activeCard.id } : null,
+      chatMessages: [] // Clear chat for privacy/size
+    };
+
+    const saveData = {
+      gameState: serializableState,
+      profile,
+      timestamp: new Date().toISOString()
+    };
+
+    localStorage.setItem('arknights_monopoly_save', JSON.stringify(saveData));
+    addToLog('Tactical data synchronized to local storage.');
+    playSound(SOUNDS.ALERT);
+  };
+
+  const loadGame = () => {
+    const saved = localStorage.getItem('arknights_monopoly_save');
+    if (!saved) {
+      addToLog("Error: No synchronized data found in local storage.");
+      return;
+    }
+    restoreFromSave(saved);
+  };
+
+  const restoreFromSave = (savedData: string) => {
+    try {
+      const { gameState: savedState, profile: savedProfile } = JSON.parse(savedData);
+      
+      // Re-attach card actions if needed
+      let activeCard = null;
+      if (savedState.activeCard && savedState.activeCard.id) {
+        activeCard = [...LGD_CARDS, ...INTEL_CARDS].find(c => c.id === savedState.activeCard.id) || null;
+      }
+
+      const baseState = {
+        ...savedState,
+        activeCard,
+        gameStarted: true,
+      };
+
+      if (gameState.gameMode === 'MULTIPLAYER' && socket && gameState.roomId) {
+        if (!gameState.isHost) {
+          addToLog("Error: Only the Sector Commander (Host) can restore tactical data.");
+          return;
+        }
+
+        // Map current socket IDs to the saved players
+        // We assume the order of players is preserved or we match by name
+        const updatedPlayers = savedState.players.map((p: Player, idx: number) => {
+          const currentRoomPlayer = gameState.players[idx];
+          return {
+            ...p,
+            id: currentRoomPlayer ? currentRoomPlayer.id : p.id // Use current socket ID if available
+          };
+        });
+
+        const newState = {
+          ...baseState,
+          players: updatedPlayers,
+          roomId: gameState.roomId,
+          isHost: true,
+        };
+
+        setGameState(newState);
+        socket.emit('sync-game-state', {
+          roomId: gameState.roomId,
+          gameState: newState
+        });
+        
+        addToLog('Broadcasting restored tactical data to all operators...');
+      } else {
+        setGameState({
+          ...baseState,
+          roomId: null,
+          isHost: true,
+          gameMode: savedState.gameMode || 'SINGLEPLAYER'
+        });
+        addToLog('Restoring tactical data from local storage...');
+      }
+
+      setProfile(savedProfile);
+      playSound(SOUNDS.GO);
+      setShowSettings(false);
+    } catch (e) {
+      console.error('Failed to load game:', e);
+      addToLog('Error: Tactical data corruption detected.');
+    }
+  };
+
+  const exportGame = () => {
+    const saved = localStorage.getItem('arknights_monopoly_save');
+    if (!saved) {
+      addToLog("Error: No mission data found to export.");
+      return;
+    }
+    const blob = new Blob([saved], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `arknights_monopoly_save_${new Date().getTime()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addToLog('Mission data exported as tactical file.');
+  };
+
+  const importGame = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        restoreFromSave(content);
+        // Also save it to localStorage so it's the new "current" save
+        localStorage.setItem('arknights_monopoly_save', content);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const clearSave = () => {
+    localStorage.removeItem('arknights_monopoly_save');
+    addToLog('Tactical data wiped from local storage.');
+    playSound(SOUNDS.ALERT);
+  };
+
+  useEffect(() => {
+    // Determine the backend URL. Default to current origin if in same-origin setup (like local dev)
+    // but allow overriding for split hosting (Firebase + Render).
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+    const newSocket = io(BACKEND_URL);
+    setSocket(newSocket);
+
+    newSocket.on('joined-room', ({ roomId, status, isHost, players, selectedOperators, gameState: syncedGameState }) => {
+      isNetworkUpdate.current = true;
+      setGameState(prev => {
+        const newState = { 
+          ...prev, 
+          roomId, 
+          isHost,
+          gameMode: prev.gameMode === 'MULTIPLAYER_QUEUE' ? 'MULTIPLAYER_QUEUE' : (isHost ? 'MULTIPLAYER_HOST' : 'MULTIPLAYER_JOIN')
+        };
+        
+        // Sync players if provided, or reset if it's a new host session to prevent stale data
+        if (players && Array.isArray(players)) {
+          newState.players = players;
+        } else if (isHost && (!prev.roomId || prev.roomId !== roomId)) {
+          newState.players = [];
+        }
+        
+        if (syncedGameState && typeof syncedGameState === 'object') {
+          const { isHost: _ih, roomId: _ri, gameMode: _gm, chatMessages: _cm, players: _ps, ...sharedState } = syncedGameState;
+          // Only merge if sharedState actually has keys to avoid wiping data with empty/null state
+          if (Object.keys(sharedState).length > 0) {
+            Object.assign(newState, sharedState);
+          }
+          // Also handle players from syncedGameState if not provided in top-level
+          if (_ps && Array.isArray(_ps) && _ps.length > 0) {
+            newState.players = _ps;
+          }
+        }
+        
+        if (status === 'IN_PROGRESS') newState.gameStarted = true;
+        
+        return newState;
+      });
+      
+      // Update operators state
+      if (selectedOperators && Array.isArray(selectedOperators)) {
+        setSelectedOperators(selectedOperators);
+      } else if (isHost) {
+        setSelectedOperators([]);
+      }
+      
+      setShowJoinRoom(false);
+      setShowCharacterSelect(status === 'LOBBY');
+      setIsQueuing(false);
+      setQueuePosition(0);
+      setQueueTotal(0);
+      
+      if (status === 'IN_PROGRESS') {
+        addToLog("Reconnected to active mission. Synchronizing tactical data...");
+        // Auto-reclaim player if email matches
+        newSocket.emit('sync-player-id', { roomId, playerName: profileRef.current.name, playerEmail: profileRef.current.email });
+      }
+    });
+
+    newSocket.on('player-id-synced', ({ oldId, newId, playerName }) => {
+      isNetworkUpdate.current = true;
+      addToLog(`ID Synchronization complete for Operator ${playerName}.`);
+      setGameState(prev => {
+        const updatedPlayers = prev.players.map(p => 
+          p.name === playerName ? { ...p, id: newId } : p
+        );
+        return { ...prev, players: updatedPlayers };
+      });
+    });
+
+    newSocket.on('identified', (userData) => {
+      setProfile(prev => ({ ...prev, ...userData }));
+      addToLog(`Doctor ${userData.name} identified. Welcome back.`);
+    });
+
+    newSocket.on('error', (msg) => {
+      addToLog(`CRITICAL ERROR: ${msg}`);
+      // If identification failed, clear email to go back to setup
+      if (msg.includes('Identification failed') || msg.includes('email is already active')) {
+        setProfile(prev => ({ ...prev, email: '' }));
+      }
+    });
+
+    newSocket.on('player-joined', ({ playerId, playerCount, status }) => {
+      addToLog(`A new Doctor has joined the mission (Total: ${playerCount}).`);
+      // Host should sync state to the new player IF we are in LOBBY (at start)
+      // If IN_PROGRESS, the server already sent the state in 'joined-room'
+      if (status === 'LOBBY') {
+        setGameState(prev => {
+          if (prev.isHost && prev.roomId) {
+            newSocket.emit('sync-game-state', { roomId: prev.roomId, gameState: prev });
+          }
+          return prev;
+        });
+      }
+    });
+
+    newSocket.on('player-left', ({ playerId, players, selectedOperators }) => {
+      isNetworkUpdate.current = true;
+      setSelectedOperators(selectedOperators);
+      setGameState(prev => ({ ...prev, players }));
+      addToLog(`A Doctor has disconnected from the mission.`);
+    });
+
+    newSocket.on('waiting-in-queue', ({ position, total }) => {
+      setIsQueuing(true);
+      setQueuePosition(position);
+      setQueueTotal(total || position);
+      setGameState(prev => ({ ...prev, message: `Searching for other Doctors... (Position: ${position}/${total || position})` }));
+    });
+
+    newSocket.on('operator-selected', ({ operator, playerId, players, selectedOperators }) => {
+      isNetworkUpdate.current = true;
+      setSelectedOperators(selectedOperators);
+      setGameState(prev => ({ ...prev, players }));
+    });
+
+    newSocket.on('game-state-updated', (newState) => {
+      isNetworkUpdate.current = true;
+      setGameState(prev => ({
+        ...prev,
+        ...newState,
+        chatMessages: prev.chatMessages, // Preserve local chat messages
+        isHost: prev.isHost, // PROTECT local host status
+        gameMode: prev.gameMode,
+        roomId: prev.roomId
+      }));
+    });
+
+    newSocket.on('new-chat-message', (message) => {
+      setGameState(prev => ({
+        ...prev,
+        chatMessages: [...prev.chatMessages, message]
+      }));
+    });
+
+    newSocket.on('chat-history', (messages) => {
+      setGameState(prev => ({
+        ...prev,
+        chatMessages: messages
+      }));
+    });
+
+    newSocket.on('timer-update', ({ remainingTime, turnTimeLimit }) => {
+      setGameState(prev => ({ ...prev, turnTimer: remainingTime, turnTimeLimit }));
+    });
+
+    newSocket.on('turn-timeout', () => {
+      // Server-confirmed timeout, trigger skip logic
+      setGameState(prev => {
+        if (prev.gameStarted && prev.turnTimer <= 0) {
+          const isMyTurn = prev.players[prev.currentPlayerIndex]?.id === newSocket.id;
+          if (isMyTurn) {
+            nextTurn(); // Just skip, don't autoplay
+          }
+        }
+        return prev;
+      });
+    });
+
+    newSocket.on('turn-changed', ({ nextIndex }) => {
+      isNetworkUpdate.current = true;
+      setGameState(prev => {
+        // Ensure we don't move the index backwards unless explicitly told (to prevent stale sync overwrites)
+        return { 
+          ...prev, 
+          currentPlayerIndex: nextIndex,
+          hasRolled: false,
+          isRolling: false,
+          consecutiveDoubles: 0,
+          canRollAgain: false,
+          message: `Mission control: Deployment switched to Doctor ${prev.players[nextIndex]?.name || 'Unknown'}.`
+        };
+      });
+    });
+
+    newSocket.on('mission-start', () => {
+      isNetworkUpdate.current = true;
+      setGameState(prev => ({ ...prev, gameStarted: true }));
+      addToLog("Mission START! All operators deploy.");
+      playSound(SOUNDS.GO);
+    });
+
+    newSocket.on('turn-timeout', () => {
+      // If it's our turn, force an action
+      setGameState(prev => {
+        const isMyTurn = prev.players[prev.currentPlayerIndex]?.id === newSocket.id;
+        if (isMyTurn && prev.gameStarted) {
+          addToLog("Time's up! Mission command is forcing a tactical reset.");
+          // We'll handle the auto-end turn in a separate useEffect or here
+        }
+        return prev;
+      });
+    });
+
+    newSocket.on('error', (msg) => {
+      setGameState(prev => ({ ...prev, message: `ERROR: ${msg}` }));
+      addToLog(`SYSTEM ERROR: ${msg}`);
+      // If we were joining, go back to menu
+      setShowJoinRoom(false);
+      setShowCharacterSelect(false);
+    });
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  const startGame = (selectedOp: any) => {
+    setPreviewOperator(null);
+    const playerAvatar = AVATARS.find(a => a.id === profile.avatarId) || AVATARS[0];
+
+    if (gameState.gameMode === 'SINGLEPLAYER') {
+      const otherOps = OPERATORS.filter(op => op.name !== selectedOp.name);
+      const shuffled = [...otherOps].sort(() => 0.5 - Math.random());
+      const selectedAI = shuffled.slice(0, 3);
+      
+      // Track selected operators for UI
+      setSelectedOperators([selectedOp.name, ...selectedAI.map(op => op.name)]);
+
+      const initialPlayers: Player[] = [
+        {
+          id: 'p0',
+          name: profile.name,
+          operator: selectedOp,
+          avatar: playerAvatar,
+          position: 0,
+          turnCount: 0,
+          orundum: STARTING_ORUNDUM + (selectedOp.name === 'Texas' ? 1000 : 0),
+          properties: [],
+          isBankrupt: false,
+          inJail: false,
+          jailTurns: 0,
+          color: selectedOp.color,
+          isAI: false,
+          skillCooldown: 0,
+          isMoving: false,
+          animationFrame: 4
+        },
+        ...selectedAI.map((op, i) => ({
+          id: `p${i + 1}`,
+          name: op.name,
+          operator: op,
+          avatar: AVATARS.find(a => a.id === `avatar_${op.name.toLowerCase().replace(/'/g, '')}`) || AVATARS[0],
+          position: 0,
+          turnCount: 0,
+          orundum: STARTING_ORUNDUM + (op.name === 'Texas' ? 1000 : 0),
+          properties: [],
+          isBankrupt: false,
+          inJail: false,
+          jailTurns: 0,
+          color: op.color,
+          isAI: true,
+          skillCooldown: 0,
+          isMoving: false,
+          animationFrame: 4
+        }))
+      ];
+
+      const hasMostimaOpponent = initialPlayers.some(p => p.id !== initialPlayers[0].id && p.operator.name === 'Mostima');
+      const baseTime = 45; // Default limit
+      const turnTimer = hasMostimaOpponent ? Math.max(10, baseTime - 5) : baseTime;
+
+      setGameState(prev => ({
+        ...prev,
+        players: initialPlayers,
+        gameStarted: true,
+        turnTimer,
+        message: `Welcome, ${selectedOp.name}. Roll to start your mission.`
+      }));
+    } else if (socket && gameState.roomId) {
+      const player: Player = {
+        id: socket.id!,
+        name: profile.name,
+        email: profile.email,
+        operator: selectedOp,
+        avatar: playerAvatar,
+        position: 0,
+        turnCount: 0,
+        orundum: STARTING_ORUNDUM + (selectedOp.name === 'Texas' ? 1000 : 0),
+        properties: [],
+        isBankrupt: false,
+        inJail: false,
+        jailTurns: 0,
+        color: selectedOp.color,
+        isAI: false,
+        skillCooldown: 0,
+        isMoving: false,
+        animationFrame: 4
+      };
+      socket.emit('select-operator', { roomId: gameState.roomId, operator: selectedOp.name, player });
+    }
+  };
+
+  useEffect(() => {
+    // We no longer auto-start. The host must click start.
+  }, []);
+
+  const handleHost = () => {
+    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    // Explicitly reset players and selected operators when hosting to prevent stale state from previous sessions
+    setGameState(prev => ({ 
+      ...prev, 
+      gameMode: 'MULTIPLAYER_HOST', 
+      roomId, 
+      isHost: true,
+      players: [],
+      gameStarted: false,
+      winner: null
+    }));
+    setSelectedOperators([]);
+    
+    if (socket) {
+      socket.emit('host-game', { roomId, hostName: profile.name, hostEmail: profile.email });
+      setShowCharacterSelect(true);
+    }
+  };
+
+  const handleJoin = () => {
+    if (socket && joinRoomId) {
+      setGameState(prev => ({ ...prev, gameMode: 'MULTIPLAYER_JOIN', isHost: false }));
+      socket.emit('join-game', { roomId: joinRoomId, playerName: profile.name, playerEmail: profile.email });
+    }
+  };
+
+  const handleSendMessage = () => {
+    if (!chatInput.trim()) return;
+    
+    const myPlayer = localPlayer;
+    const message = {
+      id: `msg_${Date.now()}_${socket?.id || 'p0'}`,
+      senderId: socket?.id || 'p0',
+      senderName: myPlayer?.name || profile.name,
+      senderAvatar: myPlayer?.avatar?.url || AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url,
+      text: chatInput.trim(),
+      timestamp: Date.now()
+    };
+
+    if (socket && gameState.roomId) {
+      socket.emit('send-chat-message', { roomId: gameState.roomId, message });
+    } else {
+      // Local chat for single player
+      setGameState(prev => ({
+        ...prev,
+        chatMessages: [...prev.chatMessages, message]
+      }));
+    }
+    setChatInput('');
+  };
+
+  const handleQueue = () => {
+    setIsQueuing(true);
+    setGameState(prev => ({ ...prev, gameMode: 'MULTIPLAYER_QUEUE', isHost: false }));
+    setShowJoinRoom(false);
+    if (socket) {
+      socket.emit('queue-online');
+    }
+  };
+
+  const handleLeaveQueue = () => {
+    setIsQueuing(false);
+    setGameState(prev => ({ ...prev, gameMode: null, message: 'Mission search aborted.' }));
+    if (socket) {
+      socket.emit('leave-queue');
+    }
+  };
+
+  useEffect(() => {
+    // Only the active player (or host if game hasn't started) should be the source of truth for state broadcasts
+    const isActivePlayer = currentPlayer && currentPlayer.id === localPlayer?.id;
+    const shouldSync = (gameState.gameMode !== 'SINGLEPLAYER' && socket && gameState.roomId) && 
+                       (isActivePlayer || (!gameState.gameStarted && gameState.isHost));
+
+    if (shouldSync) {
+      if (isNetworkUpdate.current) {
+        isNetworkUpdate.current = false;
+        return;
+      }
+      
+      // Throttled sync - ONLY sync shared game data, NOT local-only properties
+      const { chatMessages, isHost, gameMode, roomId, ...stateToSync } = gameState;
+      socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: stateToSync });
+    }
+  }, [gameState.currentPlayerIndex, gameState.gameStarted, gameState.isHost, gameState.roomId, socket]);
+
+  // Winner Check
+  useEffect(() => {
+    const activePlayers = gameState.players.filter(p => !p.isBankrupt);
+    if (gameState.gameStarted && activePlayers.length === 1 && !gameState.winner) {
+      const winner = activePlayers[0];
+      setGameState(prev => ({ ...prev, winner: winner.id, message: `Mission Accomplished! ${winner.name} is the victor!` }));
+      addToLog(`${winner.name} won the game.`);
+      setShowGameOver(true);
+      playSound(SOUNDS.VICTORY);
+      
+      // Update profile if player won
+      if (winner.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && winner.id === 'p0')) {
+        setProfile(prev => ({
+          ...prev,
+          wins: prev.wins + 1,
+          matches: prev.matches + 1,
+          exp: prev.exp + 500,
+          level: Math.floor((prev.exp + 500) / 1000) + 1
+        }));
+      } else {
+        // If local player was still in the game, they lost
+        const isLocalStillIn = gameState.players.some(p => (p.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'p0')) && !p.isBankrupt);
+        if (isLocalStillIn) {
+          setProfile(prev => ({
+            ...prev,
+            losses: prev.losses + 1,
+            matches: prev.matches + 1,
+            exp: prev.exp + 100,
+            level: Math.floor((prev.exp + 100) / 1000) + 1
+          }));
+        }
+      }
+    }
+  }, [gameState.players, gameState.gameStarted, gameState.winner, socket?.id, gameState.gameMode]);
+
+  const calculateTotalAssets = useCallback((player: Player) => {
+    let total = player.orundum;
+    player.properties.forEach(tileId => {
+      const tile = tiles[tileId];
+      if (tile) {
+        // Liquidation Value: Cash + Mortgage Value (50% cost) + 50% Building Value
+        total += tile.isMortgaged ? 0 : (tile.mortgage || Math.floor((tile.cost || 0) / 2));
+        if (tile.dorms) {
+          total += Math.floor((tile.dorms * (tile.buildCost || 0)) * 0.5);
+        }
+      }
+    });
+    return total;
+  }, [tiles]);
+
+  const resetGame = () => {
+    setGameState({
+      players: [],
+      currentPlayerIndex: 0,
+      dice: [1, 1],
+      isRolling: false,
+      hasRolled: false,
+      message: 'Welcome to Arknights Monopoly.',
+      log: ['Game started.'],
+      selectedTileId: null,
+      activeCard: null,
+      activeTrade: null,
+      activeAuction: null,
+      winner: null,
+      gameStarted: false,
+      gameMode: null,
+      roomId: null,
+      isHost: false,
+      readyPlayers: [],
+      consecutiveDoubles: 0,
+      turnTimer: 45,
+      chatMessages: [],
+      tiles: TILES
+    });
+    setShowGameOver(false);
+    setSelectedOperators([]);
+    setActiveTab('board');
+  };
+
+  const currentPlayer = (gameState.players && gameState.players.length > 0 && gameState.currentPlayerIndex >= 0) 
+    ? (gameState.players[gameState.currentPlayerIndex] || gameState.players[0]) 
+    : null;
+
+  const localPlayer = useMemo(() => {
+    if (!gameState.players || gameState.players.length === 0) return null;
+    return gameState.players.find(p => 
+      p.id === socket?.id || 
+      (p.email && profile.email && p.email === profile.email) ||
+      (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'p0')
+    );
+  }, [gameState.players, socket?.id, profile.email, gameState.gameMode]);
+
+  const isLocalTurn = useMemo(() => {
+    if (!currentPlayer || !localPlayer) return false;
+    // Strict comparison: unique ID, or unique email if IDs don't match (due to socket reconnect)
+    return currentPlayer.id === localPlayer.id || (currentPlayer.email && localPlayer.email && currentPlayer.email === localPlayer.email);
+  }, [currentPlayer, localPlayer]);
+
+  const isAuctionTurn = gameState.activeAuction && (localPlayer?.id === gameState.activeAuction.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex] || (localPlayer?.email && gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex])?.email === localPlayer.email));
+
+  const startAuction = useCallback((tileId: number) => {
+    // If an auction is already active for this tile, don't restart it
+    if (gameState.activeAuction && gameState.activeAuction.tileId === tileId) return;
+
+    const tile = tiles[tileId];
+    const biddingPlayers = gameState.players.filter(p => !p.isBankrupt).map(p => p.id);
+    
+    setGameState(prev => {
+      const newState = {
+        ...prev,
+        activeAuction: {
+          tileId,
+          highestBidderId: null,
+          highestBid: 0,
+          biddingPlayerIds: biddingPlayers,
+          currentPlayerIndex: 0
+        },
+        auctionTimer: 15,
+        message: `Auction started for ${tile.name}!`
+      };
+      
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+      
+      return newState;
+    });
+    addToLog(`Auction started for ${tile.name}.`);
+  }, [gameState.activeAuction, gameState.players, tiles, socket]);
+
+  const placeBid = useCallback((amount: number) => {
+    const auction = gameState.activeAuction;
+    if (!auction) return;
+
+    const bidderId = auction.biddingPlayerIds[auction.currentPlayerIndex];
+    const bidder = gameState.players.find(p => p.id === bidderId)!;
+
+    if (amount <= auction.highestBid || amount > bidder.orundum) return;
+
+    // If only one bidder left and they bid, they win
+    if (auction.biddingPlayerIds.length === 1) {
+      const winnerId = bidderId;
+      const winner = bidder;
+      const tile = tiles[auction.tileId];
+
+      const updatedTiles = tiles.map(t => t.id === auction.tileId ? { ...t, ownerId: winnerId } : t);
+      const updatedPlayers = gameState.players.map(p => {
+        if (p.id === winnerId) return { ...p, orundum: p.orundum - amount, properties: [...p.properties, auction.tileId] };
+        return p;
+      });
+
+      setGameState(prev => {
+        const newState = {
+          ...prev,
+          players: updatedPlayers,
+          tiles: updatedTiles,
+          activeAuction: null,
+          message: `${winner.name} won the auction for ${tile.name} at ${amount} Orundum!`
+        };
+        
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+        
+        return newState;
+      });
+      addToLog(`${winner.name} won the auction for ${tile.name}.`);
+      return;
+    }
+
+    const nextIndex = (auction.currentPlayerIndex + 1) % auction.biddingPlayerIds.length;
+
+    setGameState(prev => {
+      const newState = {
+        ...prev,
+        activeAuction: prev.activeAuction ? {
+          ...prev.activeAuction,
+          highestBid: amount,
+          highestBidderId: bidderId,
+          currentPlayerIndex: nextIndex
+        } : null,
+        auctionTimer: 15
+      };
+      
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+      
+      return newState;
+    });
+    addToLog(`${bidder.name} bid ${amount} Orundum.`);
+  }, [gameState.activeAuction, gameState.players, tiles, socket]);
+
+  const skipBid = useCallback(() => {
+    const auction = gameState.activeAuction;
+    if (!auction) return;
+
+    const remainingBidders = auction.biddingPlayerIds.filter((_, i) => i !== auction.currentPlayerIndex);
+    
+    if (remainingBidders.length === 0) {
+      // No one bought it
+      setGameState(prev => {
+        const newState = { ...prev, activeAuction: null, message: "Auction ended with no winner." };
+        
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+        
+        return newState;
+      });
+      addToLog("Auction ended with no winner.");
+      return;
+    }
+
+    if (remainingBidders.length === 1 && auction.highestBidderId) {
+      // The only remaining person is the one who already has the highest bid
+      const winnerId = auction.highestBidderId;
+      const winner = gameState.players.find(p => p.id === winnerId)!;
+      const tile = tiles[auction.tileId];
+
+      const updatedTiles = tiles.map(t => t.id === auction.tileId ? { ...t, ownerId: winnerId } : t);
+      const updatedPlayers = gameState.players.map(p => {
+        if (p.id === winnerId) return { ...p, orundum: p.orundum - auction.highestBid, properties: [...p.properties, auction.tileId] };
+        return p;
+      });
+
+      setGameState(prev => {
+        const newState = {
+          ...prev,
+          players: updatedPlayers,
+          tiles: updatedTiles,
+          activeAuction: null,
+          message: `${winner.name} won the auction for ${tile.name} at ${auction.highestBid} Orundum!`
+        };
+        
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+        
+        return newState;
+      });
+      addToLog(`${winner.name} won the auction for ${tile.name}.`);
+    } else {
+      // Next bidder
+      const nextIndex = auction.currentPlayerIndex % remainingBidders.length;
+      setGameState(prev => {
+        const newState = {
+          ...prev,
+          activeAuction: prev.activeAuction ? {
+            ...prev.activeAuction,
+            biddingPlayerIds: remainingBidders,
+            currentPlayerIndex: nextIndex
+          } : null,
+          auctionTimer: 15
+        };
+        
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+        
+        return newState;
+      });
+    }
+  }, [gameState.activeAuction, gameState.players, tiles, socket]);
+
+  const canTradeProperty = useCallback((tileId: number) => {
+    const tile = tiles[tileId];
+    if (!tile || tile.type !== 'PROPERTY') return true; // Transport/Utility can always be traded
+    
+    // Check if any property in the same group has buildings
+    const groupTiles = tiles.filter(t => t.group === tile.group);
+    return groupTiles.every(t => (t.dorms || 0) === 0);
+  }, [tiles]);
+
+  const startTrade = useCallback((receiverId: string) => {
+    if (receiverId === localPlayer?.id) return;
+    setGameState(prev => {
+      const newState = {
+        ...prev,
+        activeTrade: {
+          proposerId: localPlayer?.id || '',
+          receiverId,
+          proposerProperties: [],
+          receiverProperties: [],
+          proposerOrundum: 0,
+          receiverOrundum: 0,
+          status: 'PROPOSED',
+          waitingForId: localPlayer?.id || ''
+        }
+      };
+      
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+      
+      return newState;
+    });
+  }, [localPlayer?.id, socket]);
+
+  const updateTrade = useCallback((updates: Partial<TradeOffer>) => {
+    setGameState(prev => {
+      if (!prev.activeTrade) return prev;
+      
+      const proposer = prev.players.find(p => p.id === prev.activeTrade?.proposerId);
+      const receiver = prev.players.find(p => p.id === prev.activeTrade?.receiverId);
+
+      const newUpdates = { ...updates };
+
+      // Cap Orundum
+      if (newUpdates.proposerOrundum !== undefined && proposer) {
+        newUpdates.proposerOrundum = Math.min(newUpdates.proposerOrundum, proposer.orundum);
+      }
+      if (newUpdates.receiverOrundum !== undefined && receiver) {
+        newUpdates.receiverOrundum = Math.min(newUpdates.receiverOrundum, receiver.orundum);
+      }
+
+      // If updating properties, check if they can be traded
+      if (newUpdates.proposerProperties) {
+        const invalid = newUpdates.proposerProperties.find(id => !canTradeProperty(id));
+        if (invalid !== undefined) {
+          return { ...prev, message: `Cannot trade ${prev.tiles[invalid].name} because it or its group has buildings.` };
+        }
+      }
+      if (newUpdates.receiverProperties) {
+        const invalid = newUpdates.receiverProperties.find(id => !canTradeProperty(id));
+        if (invalid !== undefined) {
+          return { ...prev, message: `Cannot trade ${prev.tiles[invalid].name} because it or its group has buildings.` };
+        }
+      }
+
+      const newState = {
+        ...prev,
+        activeTrade: { ...prev.activeTrade, ...newUpdates }
+      };
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+  }, [canTradeProperty, socket]);
+
+  const proposeTrade = useCallback(() => {
+    setGameState(prev => {
+      const trade = prev.activeTrade;
+      if (!trade) return prev;
+      
+      const isProposer = trade.waitingForId === trade.proposerId;
+      const nextWaitingId = isProposer ? trade.receiverId : trade.proposerId;
+      const nextStatus = isProposer && trade.status === 'PROPOSED' ? 'PROPOSED' : 'COUNTERED';
+
+      const nextMessage = `Trade ${nextStatus.toLowerCase()} to ${prev.players.find(p => p.id === nextWaitingId)?.name}.`;
+      
+      const newState = {
+        ...prev,
+        activeTrade: {
+          ...trade,
+          status: nextStatus,
+          waitingForId: nextWaitingId
+        },
+        message: nextMessage,
+        log: [nextMessage, ...prev.log].slice(0, 20)
+      };
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+  }, [socket]);
+
+  const rejectTrade = useCallback(() => {
+    setGameState(prev => {
+      const msg = 'Trade offer rejected.';
+      const newState = {
+        ...prev,
+        activeTrade: null,
+        message: msg,
+        log: [msg, ...prev.log].slice(0, 20)
+      };
+      
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+      
+      return newState;
+    });
+  }, [socket]);
+
+  const acceptTrade = useCallback(() => {
+    setGameState(prev => {
+      const trade = prev.activeTrade;
+      if (!trade) return prev;
+
+      const waitingPlayer = prev.players.find(p => p.id === trade.waitingForId);
+      // Security check: only the person waiting for can accept (or AI)
+      if (trade.waitingForId !== localPlayer?.id && !waitingPlayer?.isAI) return prev;
+
+      const proposer = prev.players.find(p => p.id === trade.proposerId)!;
+      const receiver = prev.players.find(p => p.id === trade.receiverId)!;
+
+      if (proposer.orundum < trade.proposerOrundum || receiver.orundum < trade.receiverOrundum) {
+        return { ...prev, message: "Insufficient Orundum to complete trade.", activeTrade: null };
+      }
+
+      // Double check buildings just in case
+      const allProperties = [...trade.proposerProperties, ...trade.receiverProperties];
+      if (allProperties.some(id => !canTradeProperty(id))) {
+        return { ...prev, message: "Cannot trade properties with buildings.", activeTrade: null };
+      }
+
+      const updatedPlayers = prev.players.map(p => {
+        if (p.id === trade.proposerId) {
+          return {
+            ...p,
+            orundum: p.orundum - trade.proposerOrundum + trade.receiverOrundum,
+            properties: p.properties.filter(id => !trade.proposerProperties.includes(id)).concat(trade.receiverProperties)
+          };
+        }
+        if (p.id === trade.receiverId) {
+          return {
+            ...p,
+            orundum: p.orundum - trade.receiverOrundum + trade.proposerOrundum,
+            properties: p.properties.filter(id => !trade.receiverProperties.includes(id)).concat(trade.proposerProperties)
+          };
+        }
+        return p;
+      });
+
+      const updatedTiles = prev.tiles.map(t => {
+        if (trade.proposerProperties.includes(t.id)) return { ...t, ownerId: trade.receiverId };
+        if (trade.receiverProperties.includes(t.id)) return { ...t, ownerId: trade.proposerId };
+        return t;
+      });
+
+      const logMsg = `Trade completed between ${proposer.name} and ${receiver.name}.`;
+      const newState = {
+        ...prev,
+        players: updatedPlayers,
+        tiles: updatedTiles,
+        activeTrade: null,
+        message: `Trade completed between ${proposer.name} and ${receiver.name}!`,
+        log: [logMsg, ...prev.log].slice(0, 20)
+      };
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+  }, [localPlayer?.id, canTradeProperty, socket]);
+
+  const sellDorm = (tileId: number) => {
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      const tile = prev.tiles[tileId];
+      if (currentP && tile.ownerId === currentP.id && (tile.dorms || 0) > 0) {
+        const groupTiles = prev.tiles.filter(t => t.group === tile.group);
+        const maxDormsInGroup = Math.max(...groupTiles.map(t => t.dorms || 0));
+        
+        if ((tile.dorms || 0) < maxDormsInGroup) {
+          return { ...prev, message: "Tactical Error: You must liquidate facilities evenly across the sector." };
+        }
+
+        const refund = Math.floor((tile.buildCost || 0) * 0.75 * 0.5);
+        const updatedTiles = prev.tiles.map(t => t.id === tileId ? { ...t, dorms: (t.dorms || 0) - 1 } : t);
+        const updatedPlayers = prev.players.map(p => {
+          if (p.id === currentP.id) return { ...p, orundum: p.orundum + refund };
+          return p;
+        });
+
+        addToLog(`${currentP.name} liquidated a facility on ${tile.name}.`);
+        const newState = {
+          ...prev,
+          players: updatedPlayers,
+          tiles: updatedTiles,
+          message: `Liquidated facility on ${tile.name} for ${refund} Orundum.`
+        };
+
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+
+        return newState;
+      }
+      return prev;
+    });
+  };
+
+  const mortgageProperty = (tileId: number) => {
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      const tile = prev.tiles[tileId];
+      if (currentP && tile.ownerId === currentP.id && (tile.dorms || 0) === 0 && !tile.isMortgaged) {
+        const mortgageValue = tile.mortgage || Math.floor((tile.cost || 0) / 2);
+        const updatedTiles = prev.tiles.map(t => t.id === tileId ? { ...t, isMortgaged: true } : t);
+        const updatedPlayers = prev.players.map(p => {
+          if (p.id === currentP.id) return { ...p, orundum: p.orundum + mortgageValue };
+          return p;
+        });
+        addToLog(`${currentP.name} mortgaged ${tile.name}.`);
+        const newState = { ...prev, players: updatedPlayers, tiles: updatedTiles, message: `Mortgaged ${tile.name} for ${mortgageValue} Orundum.` };
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+        return newState;
+      }
+      return prev;
+    });
+  };
+
+  const unmortgageProperty = (tileId: number) => {
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      const tile = prev.tiles[tileId];
+      if (currentP && tile.ownerId === currentP.id && tile.isMortgaged) {
+        const mortgageValue = tile.mortgage || Math.floor((tile.cost || 0) / 2);
+        const cost = Math.ceil(mortgageValue * 1.1);
+        if (currentP.orundum >= cost) {
+          const updatedTiles = prev.tiles.map(t => t.id === tileId ? { ...t, isMortgaged: false } : t);
+          const updatedPlayers = prev.players.map(p => {
+            if (p.id === currentP.id) return { ...p, orundum: p.orundum - cost };
+            return p;
+          });
+          addToLog(`${currentP.name} restored operations at ${tile.name}.`);
+          const newState = { ...prev, players: updatedPlayers, tiles: updatedTiles, message: `Restored ${tile.name} for ${cost} Orundum.` };
+          if (socket && prev.roomId && !isNetworkUpdate.current) {
+            const { chatMessages, ...stateToSync } = newState;
+            socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          }
+          return newState;
+        }
+      }
+      return prev;
+    });
+  };
+
+
+  const addToLog = (msg: string) => {
+    setGameState(prev => ({
+      ...prev,
+      log: [msg, ...prev.log].slice(0, 20)
+    }));
+  };
+
+  const nextTurn = useCallback(() => {
+    if (gameState.players.length === 0) return;
+    
+    // Calculate next index before state update to avoid race conditions with socket emission
+    let nextIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+    while (gameState.players[nextIndex].isBankrupt) {
+      nextIndex = (nextIndex + 1) % gameState.players.length;
+    }
+    
+    const activePlayers = gameState.players.filter(p => !p.isBankrupt);
+    if (activePlayers.length === 1) {
+      setGameState(prev => ({ ...prev, winner: activePlayers[0].id }));
+      return;
+    }
+
+    setGameState(prev => {
+      const updatedPlayers = prev.players.map((p, idx) => 
+        idx === prev.currentPlayerIndex ? { ...p, turnCount: p.turnCount + 1 } : p
+      );
+
+      const hasMostimaOpponent = prev.players.some(p => !p.isBankrupt && p.id !== prev.players[nextIndex].id && p.operator.name === 'Mostima');
+      const baseTime = prev.turnTimeLimit || 45;
+      const turnTimer = hasMostimaOpponent ? Math.max(10, baseTime - 5) : baseTime;
+
+      return {
+        ...prev,
+        players: updatedPlayers,
+        currentPlayerIndex: nextIndex,
+        turnTimer,
+        hasRolled: false,
+        isRolling: false,
+        consecutiveDoubles: 0,
+        canRollAgain: false,
+        message: `It's ${prev.players[nextIndex].name}'s turn.`
+      };
+    });
+
+    if (socket && gameState.roomId) {
+      // Small delay to ensure local state has settled before global broadcast
+      setTimeout(() => {
+        socket.emit('next-turn', { roomId: gameState.roomId, nextIndex });
+        // Force a supplemental sync to ensure everyone has the definitive final state of the previous player
+        const { chatMessages, ...stateToSync } = { ...gameState, currentPlayerIndex: nextIndex, hasRolled: false, isRolling: false };
+        socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: stateToSync });
+      }, 100);
+    }
+  }, [socket, gameState.roomId, gameState.currentPlayerIndex, gameState.players, gameState]);
+
+  const handleBankruptcy = useCallback((player: Player, creditorId?: string) => {
+    setGameState(prev => {
+      // Transfer all remaining Orundum and properties to creditor
+      const updatedPlayers = prev.players.map(p => {
+        if (p.id === player.id) return { ...p, isBankrupt: true, orundum: 0, properties: [] };
+        if (creditorId && p.id === creditorId) {
+          return {
+            ...p,
+            // Add what's left of player's cash
+            orundum: p.orundum + Math.max(0, player.orundum),
+            // Hand over all properties
+            properties: [...(p.properties || []), ...(player.properties || [])]
+          };
+        }
+        return p;
+      });
+
+      const updatedTiles = prev.tiles.map(t => {
+        if (t.ownerId === player.id) {
+          // If there's a creditor, properties transfer but buildings are lost (sold for 50% already factored in asset check)
+          return { 
+            ...t, 
+            ownerId: creditorId || '', 
+            dorms: 0, 
+            isMortgaged: false 
+          };
+        }
+        return t;
+      });
+
+      const activePlayers = updatedPlayers.filter(p => !p.isBankrupt);
+      if (activePlayers.length === 1) {
+        return {
+          ...prev,
+          players: updatedPlayers,
+          tiles: updatedTiles,
+          winner: activePlayers[0].id,
+          message: `${player.name} is bankrupt! ${activePlayers[0].name} wins the mission!`
+        };
+      }
+
+      let nextIndex = prev.currentPlayerIndex;
+      let message = `${player.name} has gone bankrupt!`;
+      let hasRolled = prev.hasRolled;
+      let canRollAgain = prev.canRollAgain;
+
+      if (prev.players[prev.currentPlayerIndex].id === player.id) {
+        nextIndex = (prev.currentPlayerIndex + 1) % updatedPlayers.length;
+        while (updatedPlayers[nextIndex].isBankrupt) {
+          nextIndex = (nextIndex + 1) % updatedPlayers.length;
+        }
+        message = `${player.name} has gone bankrupt! It's ${updatedPlayers[nextIndex].name}'s turn.`;
+        hasRolled = false;
+        canRollAgain = false;
+        
+        // Notify other players of turn change due to bankruptcy
+        if (socket && prev.roomId) {
+          socket.emit('next-turn', { roomId: prev.roomId, nextIndex });
+        }
+      }
+
+      const newState = {
+        ...prev,
+        players: updatedPlayers,
+        tiles: updatedTiles,
+        currentPlayerIndex: nextIndex,
+        hasRolled,
+        canRollAgain,
+        message
+      };
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+
+    addToLog(`${player.name} is bankrupt.`);
+    playSound(SOUNDS.BANKRUPT);
+    
+    // Award EXP if local player went bankrupt
+    if (player.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && player.id === 'p0')) {
+      const activePlayersCount = gameState.players.filter(p => !p.isBankrupt).length;
+      const expGained = activePlayersCount === 4 ? 100 : activePlayersCount === 3 ? 200 : 300;
+      setProfile(prev => ({
+        ...prev,
+        matches: prev.matches + 1,
+        losses: prev.losses + 1,
+        exp: prev.exp + expGained,
+        level: Math.floor((prev.exp + expGained) / 1000) + 1
+      }));
+    }
+
+    if (gameState.gameMode !== 'SINGLEPLAYER' && socket) {
+      socket.emit('gameAction', {
+        type: 'BANKRUPTCY',
+        playerId: player.id,
+        creditorId,
+        roomId: gameState.roomId
+      });
+    }
+  }, [gameState.players, tiles, socket, gameState.gameMode, gameState.roomId]);
+
+  const calculateRent = useCallback((tile: Tile, owner: Player) => {
+    if (tile.isMortgaged) return 0;
+    if (!owner || !owner.operator) return 0;
+    
+    let amount = tile.rent || 0;
+
+    if (tile.type === 'TRANSPORT') {
+      const transportTiles = tiles.filter(t => t.type === 'TRANSPORT' && t.ownerId === owner.id);
+      const count = transportTiles.length;
+      if (count === 1) amount = 25;
+      else if (count === 2) amount = 50;
+      else if (count === 3) amount = 100;
+      else if (count === 4) amount = 200;
+    } else if (tile.type === 'UTILITY') {
+      const utilityTiles = tiles.filter(t => t.type === 'UTILITY' && t.ownerId === owner.id);
+      const count = utilityTiles.length;
+      const diceTotal = gameState.dice[0] + gameState.dice[1];
+      amount = count === 1 ? 4 * diceTotal : 10 * diceTotal;
+    } else if (tile.type === 'PROPERTY') {
+      const dorms = tile.dorms || 0;
+      const groupTiles = tiles.filter(t => t.group === tile.group);
+      const ownsAll = groupTiles.every(t => t.ownerId === owner.id);
+
+      if (dorms === 0) {
+        if (ownsAll) amount *= 2; // Double rent for full set unimproved
+      } else if (dorms === 1) amount = tile.dorm1 || amount;
+      else if (dorms === 2) amount = tile.dorm2 || amount;
+      else if (dorms === 3) amount = tile.dorm3 || amount;
+      else if (dorms === 4) amount = tile.dorm4 || amount;
+      else if (dorms === 5) amount = tile.cmdCtr || amount;
+
+      // Bonus: 25% extra rent for improved properties if full set is owned
+      if (ownsAll && dorms > 0) {
+        amount = Math.floor(amount * 1.25);
+      }
+    }
+
+    // Hoshiguma Skill: 10% extra rent for owner
+    if (owner.operator?.name === 'Hoshiguma') {
+      amount = Math.floor(amount * 1.1);
+    }
+
+    return amount;
+  }, [tiles, gameState.dice, gameState.players]);
+
+  const calculateBuildCost = useCallback((tile: Tile, owner: Player) => {
+    const groupTiles = tiles.filter(t => t.group === tile.group);
+    const ownsAll = groupTiles.every(t => t.ownerId === owner.id);
+    return ownsAll ? Math.floor((tile.buildCost || 0) * 0.75) : (tile.buildCost || 0);
+  }, [tiles]);
+
+  const aiSendMessage = useCallback((text: string, aiPlayer: Player) => {
+    const message = {
+      id: `msg_${Date.now()}_${aiPlayer.id}`,
+      senderId: aiPlayer.id,
+      senderName: aiPlayer.name,
+      senderAvatar: aiPlayer.avatar,
+      text,
+      timestamp: Date.now()
+    };
+
+    if (socket && gameState.roomId) {
+      socket.emit('send-chat-message', { roomId: gameState.roomId, message });
+    } else {
+      setGameState(prev => ({
+        ...prev,
+        chatMessages: [...prev.chatMessages, message]
+      }));
+    }
+  }, [socket, gameState.roomId]);
+
+  const payRent = useCallback((tenant: Player, owner: Player, tile: Tile) => {
+    if (!tenant || !owner) return;
+    // Kal'tsit Skill: 50% chance to avoid paying rent once every 5 turns
+    if (tenant.operator?.name === 'Kal\'tsit') {
+      if (tenant.turnCount % 5 === 0 && Math.random() > 0.5) {
+        setGameState(prev => ({ ...prev, message: "Mon3tr's Protection triggered! Rent avoided." }));
+        addToLog(`${tenant.name} avoided paying rent thanks to Mon3tr.`);
+        return;
+      }
+    }
+
+    const amount = calculateRent(tile, owner);
+
+    setGameState(prev => {
+      const updatedPlayers = prev.players.map(p => {
+        if (p.id === tenant.id) return { ...p, orundum: p.orundum - amount };
+        if (p.id === owner.id) return { ...p, orundum: p.orundum + amount };
+        return p;
+      });
+
+      const updatedTenant = updatedPlayers.find(p => p.id === tenant.id);
+      
+      const newState = { ...prev, players: updatedPlayers, message: `Paid ${amount} Orundum rent to ${owner.name}.` };
+
+      if (updatedTenant && updatedTenant.orundum < 0) {
+        if (calculateTotalAssets(updatedTenant) < 0) {
+          setTimeout(() => handleBankruptcy(updatedTenant, owner.id), 0);
+        } else {
+          newState.message = `${tenant.name} is in debt! Mortgage properties or sell dorms to raise funds.`;
+        }
+      }
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+
+    addToLog(`${tenant.name} paid ${amount} Orundum rent to ${owner.name}.`);
+    playSound(SOUNDS.RENT);
+    
+    if (tenant.isAI) {
+      aiSendMessage(`Ouch. That's a hefty bill for ${tile.name}.`, tenant);
+    }
+    if (owner.isAI) {
+      aiSendMessage(`Thank you for your contribution to ${tile.name}.`, owner);
+    }
+  }, [calculateRent, handleBankruptcy, aiSendMessage, playSound]);
+
+
+  const payTax = useCallback((player: Player, amount: number) => {
+    // Pramanix Skill: 50% reduced tax
+    const finalAmount = player.operator.name === 'Pramanix' ? Math.floor(amount * 0.5) : amount;
+
+    setGameState(prev => {
+      const updatedPlayers = prev.players.map(p => {
+        if (p.id === player.id) return { ...p, orundum: p.orundum - finalAmount };
+        return p;
+      });
+
+      const updatedPlayer = updatedPlayers.find(p => p.id === player.id);
+      
+      const newState = { ...prev, players: updatedPlayers, message: `Paid ${finalAmount} Orundum Originium Tax.` };
+
+      if (updatedPlayer && updatedPlayer.orundum < 0) {
+        if (calculateTotalAssets(updatedPlayer) < 0) {
+          setTimeout(() => handleBankruptcy(updatedPlayer), 0);
+        } else {
+          newState.message = `${player.name} is in debt! Mortgage properties or sell dorms to raise funds.`;
+        }
+      }
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+
+    addToLog(`${player.name} paid ${finalAmount} Orundum tax.`);
+    playSound(SOUNDS.RENT);
+
+    if (player.isAI) {
+      aiSendMessage(`Originium Tax... A necessary evil for nomadic city maintenance.`, player);
+    }
+  }, [handleBankruptcy, aiSendMessage, playSound]);
+
+
+  const sendToJail = useCallback((player: Player) => {
+    setGameState(prev => {
+      const updatedPlayers = prev.players.map(p => {
+        if (p.id === player.id) return { ...p, position: 10, inJail: true, jailTurns: 0 };
+        return p;
+      });
+      
+      const newState = { ...prev, players: updatedPlayers, message: `${player.name} was sent to the detention center!` };
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+    addToLog(`${player.name} was sent to jail.`);
+    if (player.isAI) {
+      aiSendMessage(`Detained? This is a temporary setback. I'll be back soon.`, player);
+    }
+  }, [aiSendMessage, socket]);
+
+
+  const triggerEventRef = useRef<(player: Player) => void>(null as any);
+
+  const handleTileAction = useCallback((player: Player, tileId: number) => {
+    const tile = tiles[tileId];
+    
+    switch (tile.type) {
+      case 'PROPERTY':
+      case 'TRANSPORT':
+      case 'UTILITY':
+        if (tile.ownerId) {
+          if (tile.ownerId !== player.id && !tile.isMortgaged) {
+            const owner = gameState.players.find(p => p.id === tile.ownerId);
+            if (owner) {
+              payRent(player, owner, tile);
+            } else {
+              setGameState(prev => {
+                const newState = { ...prev, message: `Landed on ${tile.name}. The Sector Commander has left the field.` };
+                if (socket && prev.roomId && !isNetworkUpdate.current) {
+                  const { chatMessages, ...stateToSync } = newState;
+                  socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+                }
+                return newState;
+              });
+            }
+          }
+        } else {
+          setGameState(prev => {
+            const newState = { ...prev, message: `Land on ${tile.name}. Would you like to buy it for ${tile.cost} Orundum? (If not, it will be auctioned)` };
+            if (socket && prev.roomId && !isNetworkUpdate.current) {
+              const { chatMessages, ...stateToSync } = newState;
+              socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+            }
+            return newState;
+          });
+          if (player.isAI) {
+            if (player.orundum >= (tile.cost || 0) + 200) {
+              aiSendMessage(`Analyzing ${tile.name}... Potential ROI is high. I'll take it.`, player);
+            } else {
+              aiSendMessage(`Resources are tight. I'll pass on ${tile.name} for now.`, player);
+            }
+          }
+        }
+        break;
+      case 'TAX':
+        payTax(player, tile.cost || TAX_AMOUNT);
+        playSound(SOUNDS.ALERT);
+        break;
+      case 'GO_TO_JAIL':
+        sendToJail(player);
+        playSound(SOUNDS.ALERT);
+        break;
+      case 'EVENT':
+        triggerEventRef.current?.(player);
+        playSound(SOUNDS.ALERT);
+        break;
+      default:
+        playSound(SOUNDS.LAND);
+        break;
+    }
+  }, [tiles, gameState.players, payRent, payTax, sendToJail]);
+
+  const triggerEvent = useCallback((player: Player) => {
+    const tile = tiles[player.position];
+    const deck = tile.name === 'Rhodes Island Intel' ? INTEL_CARDS : LGD_CARDS;
+    const card = deck[Math.floor(Math.random() * deck.length)];
+    
+    setGameState(prev => {
+      const currentP = prev.players.find(p => p.id === player.id);
+      if (!currentP) return prev;
+
+      // Lappland Skill: Immune to first jail event
+      if (currentP.operator.name === 'Lappland' && card.title === 'Sanity Depleted' && !currentP.skillUsed) {
+        const updatedPlayers = prev.players.map(p => p.id === currentP.id ? { ...p, skillUsed: true } : p);
+        addToLog(`${currentP.name} ignored detention thanks to Sundial.`);
+        return { ...prev, players: updatedPlayers, message: "Lappland's Sundial triggered! Immune to detention." };
+      }
+
+      addToLog(`${currentP.name} triggered ${card.title}.`);
+      if (currentP.isAI) {
+        aiSendMessage(`Processing event: ${card.title}. Let's see the outcome.`, currentP);
+      }
+      
+      const newState = {
+        ...prev,
+        activeCard: card
+      };
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      return newState;
+    });
+  }, [tiles, aiSendMessage, socket]);
+
+  const handleApplyCardEffect = useCallback(() => {
+    const card = gameState.activeCard;
+    if (!card) return;
+
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      if (!currentP) return prev;
+
+      const { players: updatedPlayers, message, skipLandingAction } = card.action(currentP, prev.players, prev.tiles, prev.dice);
+      const playerAfterCard = updatedPlayers.find(p => p.id === currentP.id)!;
+      const newPos = playerAfterCard.position;
+
+      const newState = {
+        ...prev,
+        players: updatedPlayers,
+        message: `${card.title}: ${message}`,
+        activeCard: null // Clear card after applying
+      };
+
+      if (playerAfterCard.orundum < 0) {
+        if (calculateTotalAssets(playerAfterCard) < 0) {
+          setTimeout(() => handleBankruptcy(playerAfterCard), 0);
+        } else {
+          newState.message = `${playerAfterCard.name} is in debt! Mortgage properties or sell dorms to raise funds.`;
+        }
+      }
+
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+
+      if (!skipLandingAction && newPos !== currentP.position) {
+        setTimeout(() => {
+          handleTileAction(playerAfterCard, newPos);
+        }, 300);
+      }
+
+      return newState;
+    });
+  }, [handleBankruptcy, aiSendMessage, handleTileAction, gameState.activeCard, socket]);
+
+
+  triggerEventRef.current = triggerEvent;
+
+  const handleMove = useCallback(async (player: Player, steps: number) => {
+    setIsMoving(true);
+    let currentPos = player.position;
+    
+    // Set initial moving state for the player
+    setGameState(prev => ({
+      ...prev,
+      players: prev.players.map(p => p.id === player.id ? { ...p, isMoving: true } : p)
+    }));
+
+    for (let i = 1; i <= steps; i++) {
+      currentPos = (currentPos + 1) % BOARD_SIZE;
+      const passedGo = currentPos === 0;
+
+      if (passedGo) {
+        const reward = player.operator.name === 'Amiya' ? Math.floor(GO_REWARD * 1.1) : GO_REWARD;
+        addToLog(`${player.name} passed GO and collected ${reward} Orundum.`);
+        playSound(SOUNDS.GO);
+      }
+
+      setGameState(prev => ({
+        ...prev,
+        players: prev.players.map(p => {
+          if (p.id === player.id) {
+            const reward = passedGo ? (p.operator.name === 'Amiya' ? Math.floor(GO_REWARD * 1.1) : GO_REWARD) : 0;
+            return { ...p, position: currentPos, orundum: p.orundum + reward };
+          }
+          return p;
+        })
+      }));
+      
+      playSound(SOUNDS.MOVE);
+      // Wait for the move to "feel" right and complete before next hop
+      await new Promise(resolve => setTimeout(resolve, 300 / settings.animationSpeed));
+    }
+
+    // Finalize movement
+    setGameState(prev => {
+      const updatedPlayers = prev.players.map(p => p.id === player.id ? { ...p, isMoving: false } : p);
+      setTimeout(() => handleTileAction(updatedPlayers[prev.currentPlayerIndex], currentPos), 300);
+      const newState = { ...prev, players: updatedPlayers };
+      
+      // Explicit sync after movement finishes
+      if (socket && prev.roomId && !isNetworkUpdate.current) {
+        const { chatMessages, ...stateToSync } = newState;
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+      }
+      
+      return newState;
+    });
+    
+    setIsMoving(false);
+  }, [gameState.currentPlayerIndex, settings.animationSpeed, handleTileAction, socket]);
+
+  const buyProperty = () => {
+    if (gameState.activeAuction) return; // Prevent purchase during active auction
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      if (!currentP) return prev;
+      
+      const tile = prev.tiles[currentP.position];
+      const isBuyable = ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tile.type);
+      
+      // SilverAsh Skill: 10% less to buy
+      const cost = currentP.operator.name === 'SilverAsh' ? Math.floor((tile.cost || 0) * 0.9) : (tile.cost || 0);
+
+      if (isBuyable && !tile.ownerId && currentP.orundum >= cost) {
+        const updatedTiles = prev.tiles.map(t => t.id === tile.id ? { ...t, ownerId: currentP.id, dorms: 0, isMortgaged: false } : t);
+        const updatedPlayers = prev.players.map(p => {
+          if (p.id === currentP.id) {
+            return {
+              ...p,
+              orundum: p.orundum - cost,
+              properties: [...(p.properties || []), tile.id]
+            };
+          }
+          return p;
+        });
+
+        addToLog(`${currentP.name} purchased ${tile.name} for ${cost} Orundum.`);
+        playSound(SOUNDS.BUY);
+
+        const newState = {
+          ...prev,
+          players: updatedPlayers,
+          tiles: updatedTiles,
+          message: `Purchased ${tile.name}!`
+        };
+
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+
+        return newState;
+      }
+      return prev;
+    });
+  };
+
+
+  const buildDorm = (tileId: number) => {
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      const tile = prev.tiles[tileId];
+      if (currentP && tile.ownerId === currentP.id && tile.type === 'PROPERTY' && !tile.isMortgaged) {
+        const groupTiles = prev.tiles.filter(t => t.group === tile.group);
+        const ownsAll = groupTiles.every(t => t.ownerId === currentP.id);
+        const anyMortgaged = groupTiles.some(t => t.isMortgaged);
+        
+        if (!ownsAll) {
+          return { ...prev, message: "You must own all properties in this sector to build dorms." };
+        }
+
+        if (anyMortgaged) {
+          return { ...prev, message: "Cannot build if any property in the sector is mortgaged." };
+        }
+
+        // 25% discount for owning the full set
+        const baseCost = tile.buildCost || 0;
+        const effectiveCost = Math.floor(baseCost * 0.75);
+
+        const currentDorms = tile.dorms || 0;
+        if (currentDorms < 5 && currentP.orundum >= effectiveCost) {
+          // Even building rule
+          const minDormsInGroup = Math.min(...groupTiles.map(t => t.dorms || 0));
+          if (currentDorms > minDormsInGroup) {
+            return { ...prev, message: "You must build evenly across the sector." };
+          }
+
+          const updatedTiles = prev.tiles.map(t => t.id === tileId ? { ...t, dorms: currentDorms + 1 } : t);
+          const updatedPlayers = prev.players.map(p => {
+            if (p.id === currentP.id) return { ...p, orundum: p.orundum - effectiveCost };
+            return p;
+          });
+          
+          addToLog(`${currentP.name} built on ${tile.name}.`);
+          
+          const newState = {
+            ...prev,
+            players: updatedPlayers,
+            tiles: updatedTiles,
+            message: `Built ${currentDorms === 4 ? 'Command Center' : 'Dorm'} on ${tile.name} for ${effectiveCost} Orundum!`
+          };
+
+          if (socket && prev.roomId && !isNetworkUpdate.current) {
+            const { chatMessages, ...stateToSync } = newState;
+            socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          }
+
+          return newState;
+        }
+      }
+      return prev;
+    });
+  };
+
+
+
+
+
+  const payJailFee = useCallback(() => {
+    setGameState(prev => {
+      const currentP = prev.players[prev.currentPlayerIndex];
+      if (currentP?.inJail && currentP.orundum >= JAIL_FEE) {
+        const updatedPlayers = prev.players.map(p => {
+          if (p.id === currentP.id) return { ...p, inJail: false, jailTurns: 0, orundum: p.orundum - JAIL_FEE };
+          return p;
+        });
+        addToLog(`${currentP.name} paid bail.`);
+        
+        const newState = { ...prev, players: updatedPlayers, message: `${currentP.name} paid ${JAIL_FEE} Orundum to leave detention.` };
+
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = newState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+
+        return newState;
+      }
+      return prev;
+    });
+  }, []);
+
+
+  const rollDice = useCallback(() => {
+    if (gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || gameState.winner || isMoving) return;
+
+    setGameState(prev => ({ ...prev, isRolling: true, canRollAgain: false }));
+    playSound(SOUNDS.DICE);
+
+    setTimeout(() => {
+      const d1 = Math.floor(Math.random() * 6) + 1;
+      const d2 = Math.floor(Math.random() * 6) + 1;
+      let total = d1 + d2;
+      const isDoubles = d1 === d2;
+
+      // Ch'en Skill: 15% chance to roll an extra die
+      if (currentPlayer?.operator.name === 'Ch\'en' && Math.random() < 0.15) {
+        const extraDie = Math.floor(Math.random() * 6) + 1;
+        total += extraDie;
+        addToLog(`${currentPlayer.name} triggered Chi-Shadowless and rolled an extra ${extraDie}!`);
+      }
+
+      // Exusiai Skill: O200 on doubles
+      if (isDoubles && currentPlayer?.operator.name === 'Exusiai') {
+        setGameState(prev => {
+          const updatedPlayers = prev.players.map(p => {
+            if (p.id === currentPlayer?.id) return { ...p, orundum: p.orundum + 200 };
+            return p;
+          });
+          
+          const newState = { ...prev, players: updatedPlayers };
+
+          if (socket && prev.roomId && !isNetworkUpdate.current) {
+            const { chatMessages, ...stateToSync } = newState;
+            socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          }
+
+          return newState;
+        });
+        addToLog(`${currentPlayer.name} triggered Apple Pie! and gained O200.`);
+      }
+
+      let newConsecutiveDoubles = isDoubles ? gameState.consecutiveDoubles + 1 : 0;
+      let shouldGoToJail = newConsecutiveDoubles === 3;
+
+      setGameState(prev => ({
+        ...prev,
+        dice: [d1, d2],
+        isRolling: false,
+        hasRolled: true,
+        canRollAgain: isDoubles && !shouldGoToJail,
+        consecutiveDoubles: newConsecutiveDoubles,
+        message: shouldGoToJail ? '3 DOUBLES! GO TO JAIL!' : `Rolled a ${total}${isDoubles ? ' (DOUBLES!)' : ''}!`
+      }));
+
+      if (isDoubles && currentPlayer?.isAI && !shouldGoToJail) {
+        aiSendMessage(`Doubles! Tactical advantage secured.`, currentPlayer);
+      }
+
+      if (shouldGoToJail) {
+        sendToJail(currentPlayer);
+        addToLog(`${currentPlayer.name} rolled 3 doubles and was sent to jail.`);
+        // Force end turn immediately on 3rd double jail
+        setTimeout(() => nextTurn(), 1500); 
+        return;
+      }
+
+      if (currentPlayer?.inJail) {
+        if (isDoubles) {
+          setGameState(prev => {
+            const updatedPlayers = prev.players.map(p => {
+              if (p.id === currentPlayer?.id) return { ...p, inJail: false, jailTurns: 0 };
+              return p;
+            });
+            return { ...prev, players: updatedPlayers, message: `Doubles! ${currentPlayer.name} is free!`, hasRolled: true, canRollAgain: false };
+          });
+          addToLog(`${currentPlayer.name} rolled doubles and left detention.`);
+          handleMove({ ...currentPlayer, inJail: false, jailTurns: 0 }, total);
+        } else {
+          const newJailTurns = (currentPlayer.jailTurns || 0) + 1;
+          if (newJailTurns >= 3) {
+            setGameState(prev => {
+              const updatedPlayers = prev.players.map(p => {
+                if (p.id === currentPlayer?.id) return { ...p, inJail: false, jailTurns: 0, orundum: p.orundum - JAIL_FEE };
+                return p;
+              });
+              return { ...prev, players: updatedPlayers, message: `3rd turn in detention. ${currentPlayer.name} paid ${JAIL_FEE} Orundum and is free!`, hasRolled: true };
+            });
+            addToLog(`${currentPlayer.name} paid bail after 3 turns.`);
+            handleMove({ ...currentPlayer, inJail: false, jailTurns: 0, orundum: currentPlayer.orundum - JAIL_FEE }, total);
+          } else {
+            setGameState(prev => {
+              const updatedPlayers = prev.players.map(p => {
+                if (p.id === currentPlayer?.id) return { ...p, jailTurns: newJailTurns };
+                return p;
+              });
+              return { ...prev, players: updatedPlayers, message: `${currentPlayer.name} remains in detention.`, hasRolled: true };
+            });
+            addToLog(`${currentPlayer.name} remains in detention.`);
+          }
+        }
+      } else {
+        handleMove(currentPlayer, total);
+      }
+
+      // Explicit sync after dice roll
+      setGameState(prev => {
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = prev;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+        return prev;
+      });
+    }, 1000);
+  }, [gameState.isRolling, gameState.hasRolled, gameState.winner, isMoving, gameState.consecutiveDoubles, gameState.players, gameState.currentPlayerIndex, handleMove, currentPlayer, payJailFee, socket]);
+
+  // Unified Turn Timer Countdown Effect (Singleplayer & Host Backup)
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (gameState.gameStarted && !gameState.winner && !gameState.isRolling && !isMoving && !gameState.activeAuction) {
+      // For Singleplayer, we drive the timer here. 
+      // For Multiplayer, the server drives it, but the host can provide a local backup if needed (optional)
+      if (gameState.gameMode === 'SINGLEPLAYER' || (gameState.isHost && !socket)) {
+        timer = setInterval(() => {
+          setGameState(prev => {
+            if (prev.turnTimer <= 0) return prev;
+            return { ...prev, turnTimer: prev.turnTimer - 1 };
+          });
+        }, 1000);
+      }
+    }
+    return () => clearInterval(timer);
+  }, [gameState.gameStarted, gameState.winner, gameState.isRolling, isMoving, gameState.activeAuction, gameState.gameMode, gameState.isHost, socket]);
+
+  useEffect(() => {
+    if (gameState.gameStarted && gameState.turnTimer === 0) {
+      if (gameState.gameMode === 'SINGLEPLAYER') {
+        // Auto-skip logic for Singleplayer
+        nextTurn(); // Just skip, don't autoplay
+      } else if (socket) {
+        // Multiplayer skip: only current player or host performs the skip action locally 
+        const isMyTurn = gameState.players[gameState.currentPlayerIndex]?.id === socket.id;
+        if (isMyTurn) {
+          nextTurn(); // Just skip, don't autoplay
+        }
+      }
+    }
+  }, [gameState.turnTimer, gameState.gameStarted, gameState.currentPlayerIndex, socket, nextTurn, gameState.gameMode]);
+
+  // Auction Timer Effect
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (gameState.activeAuction && gameState.gameStarted) {
+      timer = setInterval(() => {
+        setGameState(prev => {
+          if (!prev.activeAuction) return prev;
+          if (prev.auctionTimer <= 0) return prev;
+          return { ...prev, auctionTimer: prev.auctionTimer - 1 };
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [gameState.activeAuction, gameState.gameStarted]);
+
+  // AI Card Interaction
+  useEffect(() => {
+    if (gameState.activeCard && !gameState.winner) {
+      const activePlayer = gameState.players[gameState.currentPlayerIndex];
+      if (activePlayer && activePlayer.isAI) {
+        const timer = setTimeout(() => {
+          handleApplyCardEffect();
+        }, 3000); // Give 3 seconds for the "reveal" before auto-applying
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState.activeCard, gameState.currentPlayerIndex, gameState.players, gameState.winner, handleApplyCardEffect]);
+
+  // Handle Auction Timeout
+  useEffect(() => {
+    if (gameState.activeAuction && gameState.auctionTimer === 0) {
+      skipBid();
+    }
+  }, [gameState.auctionTimer, gameState.activeAuction, skipBid]);
+
+  // AI Logic
+  useEffect(() => {
+    if (currentPlayer && currentPlayer.isAI && !gameState.winner && !gameState.isRolling && !isMoving) {
+      const timer = setTimeout(() => {
+        // 0. Handle Debt (Bankruptcy Mitigation)
+        if (currentPlayer.orundum < 0) {
+          // AI is in debt, try to raise money
+          // 1. Sell dorms
+          const propertyWithDorms = tiles.find(t => t.ownerId === currentPlayer.id && (t.dorms || 0) > 0);
+          if (propertyWithDorms) {
+            sellDorm(propertyWithDorms.id);
+            aiSendMessage(`Selling some assets to cover expenses...`, currentPlayer);
+            return;
+          }
+          // 2. Mortgage properties
+          const properties = (currentPlayer.properties || []).map(id => tiles[id]).filter(t => !t.isMortgaged);
+          if (properties.length > 0) {
+            const mostExpensive = [...properties].sort((a, b) => (b.cost || 0) - (a.cost || 0))[0];
+            mortgageProperty(mostExpensive.id);
+            aiSendMessage(`Mortgaging ${mostExpensive.name} to stay in the game.`, currentPlayer);
+            return;
+          }
+          // 3. If still < 0, go bankrupt
+          handleBankruptcy(currentPlayer);
+          aiSendMessage(`I'm out of resources. Good game, everyone.`, currentPlayer);
+          return;
+        }
+
+        if (gameState.activeTrade) return; // Trade handled in separate effect
+        if (gameState.activeAuction) return;
+
+        if (!gameState.hasRolled) {
+          if (currentPlayer.inJail) {
+            if (currentPlayer.orundum >= JAIL_FEE * 2) {
+              payJailFee();
+              aiSendMessage(`Paying the fine to get back to work.`, currentPlayer);
+            } else {
+              rollDice();
+            }
+          } else {
+            rollDice();
+          }
+        } else {
+          const tile = tiles[currentPlayer.position];
+          const isBuyable = ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tile.type) && !tile.ownerId;
+          
+          if (isBuyable) {
+            if (currentPlayer.orundum >= (tile.cost || 0) + 200) {
+              buyProperty();
+              aiSendMessage(`Acquired ${tile.name}. Strategic expansion complete.`, currentPlayer);
+            } else {
+              startAuction(currentPlayer.position);
+              aiSendMessage(`I'll let the market decide the value of ${tile.name}.`, currentPlayer);
+            }
+          } else {
+            // AI Action Phase
+            
+            // 1. Try to unmortgage properties if wealthy
+            const mortgaged = tiles.find(t => t.ownerId === currentPlayer.id && t.isMortgaged && currentPlayer.orundum > (t.mortgage || 0) * 2 + 1000);
+            if (mortgaged) {
+              mortgageProperty(mortgaged.id);
+              aiSendMessage(`Unmortgaging ${mortgaged.name}. It's back in operation.`, currentPlayer);
+              return;
+            }
+
+            // 2. Try to initiate a trade to complete a set
+            const now = Date.now();
+            if (!gameState.activeTrade && (!gameState.lastAiTradeTime || now - gameState.lastAiTradeTime > 60000)) {
+              const myProperties = tiles.filter(t => t.ownerId === currentPlayer.id);
+              const incompleteGroups = [...new Set(myProperties.map(t => t.group))].filter(group => {
+                if (!group) return false;
+                const groupTiles = tiles.filter(t => t.group === group);
+                const ownedCount = groupTiles.filter(t => t.ownerId === currentPlayer.id).length;
+                return ownedCount > 0 && ownedCount < groupTiles.length;
+              });
+
+              for (const group of incompleteGroups) {
+                const groupTiles = tiles.filter(t => t.group === group);
+                const missingTile = groupTiles.find(t => t.ownerId && t.ownerId !== currentPlayer.id);
+                if (missingTile && missingTile.ownerId) {
+                  const owner = gameState.players.find(p => p.id === missingTile.ownerId);
+                  if (owner && !owner.isAI && currentPlayer.orundum > (missingTile.cost || 0) * 2) {
+                    // Offer 1.5x cost for the missing tile
+                    const offerAmount = Math.floor((missingTile.cost || 0) * 1.5);
+                    setGameState(prev => ({
+                      ...prev,
+                      lastAiTradeTime: now,
+                      activeTrade: {
+                        proposerId: currentPlayer.id,
+                        receiverId: owner.id,
+                        proposerProperties: [],
+                        receiverProperties: [missingTile.id],
+                        proposerOrundum: offerAmount,
+                        receiverOrundum: 0,
+                        status: 'PROPOSED',
+                        waitingForId: owner.id
+                      }
+                    }));
+                    aiSendMessage(`Doctor ${owner.name}, I'm interested in ${missingTile.name}. Here is a fair offer.`, currentPlayer);
+                    return;
+                  }
+                }
+              }
+            }
+
+            // 3. Try building if possible
+            const buildableProperties = tiles.filter(t => 
+              t.ownerId === currentPlayer.id && 
+              t.type === 'PROPERTY' && 
+              (t.dorms || 0) < 5 && 
+              !t.isMortgaged
+            );
+
+            const validBuildables = buildableProperties.filter(t => {
+              const groupTiles = tiles.filter(gt => gt.group === t.group);
+              const ownsAll = groupTiles.every(gt => gt.ownerId === currentPlayer.id);
+              const anyMortgaged = groupTiles.some(gt => gt.isMortgaged);
+              const minDormsInGroup = Math.min(...groupTiles.map(gt => gt.dorms || 0));
+              return ownsAll && !anyMortgaged && (t.dorms || 0) <= minDormsInGroup;
+            });
+
+            validBuildables.sort((a, b) => (b.buildCost || 0) - (a.buildCost || 0));
+
+            const buildable = validBuildables.find(t => {
+              const effectiveCost = Math.floor((t.buildCost || 0) * 0.75);
+              return currentPlayer.orundum >= effectiveCost + 1000;
+            });
+
+            if (buildable) {
+              buildDorm(buildable.id);
+              aiSendMessage(`Upgrading facilities at ${buildable.name}.`, currentPlayer);
+            } else if (gameState.canRollAgain) {
+              rollDice();
+            } else {
+              nextTurn();
+            }
+          }
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [gameState.currentPlayerIndex, gameState.hasRolled, gameState.canRollAgain, gameState.isRolling, gameState.activeTrade, gameState.activeAuction, isMoving, tiles, gameState.players, aiSendMessage]);
+
+  // AI Trade Response Effect
+  useEffect(() => {
+    if (gameState.activeTrade && !gameState.winner) {
+      const trade = gameState.activeTrade;
+      const waitingPlayer = gameState.players.find(p => p.id === trade.waitingForId);
+      
+      if (waitingPlayer && waitingPlayer.isAI) {
+        const timer = setTimeout(() => {
+          // Re-check if trade is still active and waiting for this AI
+          if (!gameState.activeTrade || gameState.activeTrade.waitingForId !== waitingPlayer.id) return;
+
+          // AI Evaluation Logic
+          const evaluateTrade = () => {
+            const isAIProposer = trade.proposerId === waitingPlayer.id;
+            
+            let givingValue = isAIProposer ? trade.proposerOrundum : trade.receiverOrundum;
+            let gettingValue = isAIProposer ? trade.receiverOrundum : trade.proposerOrundum;
+            
+            const givingProperties = isAIProposer ? trade.proposerProperties : trade.receiverProperties;
+            const gettingProperties = isAIProposer ? trade.receiverProperties : trade.proposerProperties;
+            
+            givingProperties.forEach(id => {
+              const tile = tiles[id];
+              givingValue += (tile.cost || 0);
+              // Penalty for giving away a set or helping them complete one
+              const groupTiles = tiles.filter(t => t.group === tile.group);
+              const otherId = isAIProposer ? trade.receiverId : trade.proposerId;
+              const ownedByThem = groupTiles.filter(t => t.ownerId === otherId || givingProperties.includes(t.id)).length;
+              if (ownedByThem === groupTiles.length) givingValue += (tile.cost || 0) * 0.8;
+            });
+            
+            gettingProperties.forEach(id => {
+              const tile = tiles[id];
+              gettingValue += (tile.cost || 0);
+              // Bonus for completing a set
+              const groupTiles = tiles.filter(t => t.group === tile.group);
+              const ownedByMe = groupTiles.filter(t => t.ownerId === waitingPlayer.id || gettingProperties.includes(t.id)).length;
+              if (ownedByMe === groupTiles.length) gettingValue += (tile.cost || 0) * 1.2;
+            });
+            
+            return { gettingValue, givingValue };
+          };
+
+          const { gettingValue, givingValue } = evaluateTrade();
+
+          if (gettingValue >= givingValue * 1.1) {
+            acceptTrade();
+            aiSendMessage(`This trade seems fair. I accept.`, waitingPlayer);
+          } else if (gettingValue >= givingValue * 0.8 && trade.status === 'PROPOSED') {
+            // Counter offer: ask for more money
+            const gap = Math.floor(givingValue * 1.1 - gettingValue);
+            const isAIProposer = trade.proposerId === waitingPlayer.id;
+            
+            if (isAIProposer) {
+              updateTrade({ receiverOrundum: trade.receiverOrundum + gap });
+            } else {
+              updateTrade({ proposerOrundum: trade.proposerOrundum + gap });
+            }
+            proposeTrade();
+            aiSendMessage(`I'm interested, but I'll need a bit more Orundum to close the deal.`, waitingPlayer);
+          } else {
+            rejectTrade();
+            aiSendMessage(`I'm not interested in this offer.`, waitingPlayer);
+          }
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState.activeTrade?.waitingForId, gameState.activeTrade?.status, gameState.winner, tiles, gameState.players, acceptTrade, rejectTrade, updateTrade, proposeTrade, aiSendMessage]);
+
+  // AI Auction Logic
+  useEffect(() => {
+    if (gameState.activeAuction) {
+      const auction = gameState.activeAuction;
+      const bidderId = auction.biddingPlayerIds[auction.currentPlayerIndex];
+      const bidder = gameState.players.find(p => p.id === bidderId)!;
+      const tile = tiles[auction.tileId];
+
+      if (bidder.isAI) {
+        const timer = setTimeout(() => {
+          // Re-check if it's still the AI's turn after timeout
+          const currentAuction = gameState.activeAuction;
+          if (!currentAuction || currentAuction.biddingPlayerIds[currentAuction.currentPlayerIndex] !== bidderId) return;
+
+          const groupTiles = tiles.filter(t => t.group === tile.group);
+          const ownedInGroup = groupTiles.filter(t => t.ownerId === bidder.id).length;
+          const isCompletingSet = ownedInGroup === groupTiles.length - 1;
+          const isBlockingSet = groupTiles.some(t => {
+            if (!t.ownerId || t.ownerId === bidder.id) return false;
+            const othersOwned = groupTiles.filter(gt => gt.ownerId === t.ownerId).length;
+            return othersOwned === groupTiles.length - 1;
+          });
+          
+          // Smarter max bid
+          let multiplier = 1.1;
+          if (isCompletingSet) multiplier = 2.0;
+          else if (isBlockingSet) multiplier = 1.5;
+          else if (tile.type === 'TRANSPORT') multiplier = 1.3;
+          else if (tile.type === 'UTILITY') multiplier = 1.2;
+
+          const maxBid = (tile.cost || 100) * multiplier;
+          
+          if (auction.highestBid < maxBid && bidder.orundum > auction.highestBid + 10) {
+            // Randomize increment slightly
+            const minIncrement = 10;
+            const maxIncrement = isCompletingSet ? 100 : 30;
+            const increment = Math.floor(Math.random() * (maxIncrement - minIncrement + 1)) + minIncrement;
+            
+            const nextBid = Math.min(auction.highestBid + increment, Math.floor(maxBid), bidder.orundum);
+            
+            if (nextBid > auction.highestBid) {
+              placeBid(nextBid);
+              aiSendMessage(`I'll bid ${nextBid} Orundum for this sector.`, bidder);
+            } else {
+              skipBid();
+              aiSendMessage(`The price is too high for me. I'm out.`, bidder);
+            }
+          } else {
+            skipBid();
+            aiSendMessage(`I'm not interested in this sector at this price.`, bidder);
+          }
+        }, 800);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState.activeAuction?.currentPlayerIndex, gameState.activeAuction?.highestBid]);
+
+
+  const renderTile = (tile: Tile, side: 'top' | 'bottom' | 'left' | 'right' | 'corner') => {
+    const owner = gameState.players.find(p => p.id === tile.ownerId);
+    const playersOnTile = gameState.players.filter(p => p.position === tile.id && !p.isBankrupt);
+
+    const isCorner = side === 'corner';
+    
+    let containerClass = `relative flex flex-col items-center justify-between transition-all cursor-pointer ${tile.id === gameState.selectedTileId ? 'ring-2 ring-orange-500 z-10' : ''} ${tile.isMortgaged ? 'opacity-40' : ''}`;
+    
+    if (isCorner) {
+      containerClass += " w-[65px] h-[65px]";
+    } else if (side === 'top' || side === 'bottom') {
+      containerClass += " w-[40px] h-[65px]";
+    } else {
+      containerClass += " w-[65px] h-[40px]";
+    }
+
+    const contentRotation = side === 'left' ? 'rotate-90' :
+                            side === 'right' ? '-rotate-90' :
+                            side === 'top' ? 'rotate-180' : '';
+
+    return (
+      <div 
+        key={tile.id}
+        className={containerClass}
+        onClick={() => {
+          setGameState(prev => ({ ...prev, selectedTileId: tile.id }));
+          if (['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tile.type)) {
+            setShowPropertyModal(true);
+          }
+        }}
+      >
+        <div className={`flex-1 flex flex-col items-center justify-center text-center w-full h-full ${contentRotation}`} />
+
+        {/* Player Tokens - Specifically positioned for Jail or centered for other tiles */}
+        <div className="absolute inset-0 pointer-events-none z-20">
+          {tile.type === 'JAIL' ? (
+            <>
+              {/* Just Visiting Zone (Bottom and Left edges) */}
+              <div className="absolute inset-0 flex items-end justify-start">
+                 {/* This container covers the L-shape visually by being small enough */}
+                 <div className="flex flex-wrap gap-0.5 p-0.5 max-w-full max-h-full">
+                    <AnimatePresence>
+                      {playersOnTile.filter(p => !p.inJail).map(p => (
+                        <div key={p.id} className="w-4 h-4 scale-75">
+                          <PlayerToken player={p} animationSpeed={settings.animationSpeed} />
+                        </div>
+                      ))}
+                    </AnimatePresence>
+                 </div>
+              </div>
+              
+              {/* Detention Zone (Top-Right 53x53 area) */}
+              <div className="absolute top-0 right-0 w-[53px] h-[53px] flex items-center justify-center">
+                <div className="grid grid-cols-2 gap-0.5 justify-center">
+                  <AnimatePresence>
+                    {playersOnTile.filter(p => p.inJail).map(p => (
+                      <PlayerToken key={p.id} player={p} animationSpeed={settings.animationSpeed} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="grid grid-cols-2 gap-0.5 justify-center max-w-[95%]">
+                <AnimatePresence>
+                  {playersOnTile.map(p => (
+                    <PlayerToken key={p.id} player={p} animationSpeed={settings.animationSpeed} />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Character-Specific Buildings (Minimized to fit Color Spot) */}
+        {owner && tile.type === 'PROPERTY' && tile.dorms !== undefined && tile.dorms > 0 && (
+          <div className={`absolute z-30 flex items-center justify-center pointer-events-none ${
+            side === 'top' ? 'bottom-0 left-0 w-full h-[15px]' :
+            side === 'bottom' ? 'top-0 left-0 w-full h-[15px]' :
+            side === 'left' ? 'right-0 top-0 h-full w-[15px]' :
+            side === 'right' ? 'left-0 top-0 h-full w-[15px]' : ''
+          }`}>
+            {tile.dorms < 5 ? (
+              <div className={`flex ${side === 'left' || side === 'right' ? 'flex-col' : 'flex-row'} items-center justify-center gap-0`}>
+                {Array.from({ length: tile.dorms }).map((_, i) => (
+                  <img 
+                    key={i} 
+                    src={owner.operator.dormImage} 
+                    alt="Dorm" 
+                    className={`w-2 h-2 md:w-2.5 md:h-2.5 object-contain ${contentRotation}`}
+                  />
+                ))}
+              </div>
+            ) : (
+              <img 
+                src={owner.operator.commandCenterImage} 
+                alt="Command Center" 
+                className={`w-full h-full object-contain ${contentRotation}`}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Ownership indicated by aligned strip (Outer Edges) */}
+        {owner && (
+          <div 
+            className={`absolute z-10 shadow-[0_0_5px_rgba(0,0,0,0.6)] ${
+              side === 'top' ? 'top-0 left-0 w-full h-1' :
+              side === 'bottom' ? 'bottom-0 left-0 w-full h-1' :
+              side === 'left' ? 'top-0 left-0 h-full w-1' :
+              side === 'right' ? 'top-0 right-0 h-full w-1' : ''
+            }`} 
+            style={{ backgroundColor: owner.color }} 
+          />
+        )}
+      </div>
+    );
+  };
+
+  if (!gameState.gameStarted) {
+    return (
+      <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans flex items-center justify-center p-1.5 md:p-8 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10 pointer-events-none" 
+             style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+        
+        <AnimatePresence mode="wait">
+          {!profile.email && (
+            <motion.div
+              key="account-setup"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md"
+            >
+              <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-full">
+                <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Identity <span className="text-orange-500">Verification</span></h2>
+                    <p className="text-xs text-zinc-500 font-mono">ENFORCE IDENTIFICATION PROTOCOL</p>
+                  </div>
+                  {profile.email && (
+                    <button onClick={() => setShowProfile(false)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors">
+                      <X className="w-5 h-5 text-zinc-400" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="p-6 space-y-6 overflow-y-auto">
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Doctor Codename</label>
+                      <input 
+                        type="text" 
+                        value={profile.name}
+                        onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value }))}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 text-white focus:border-orange-500 outline-none transition-colors"
+                        placeholder="Enter Codename..."
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Identification Email</label>
+                      <input 
+                        type="email" 
+                        value={profile.email}
+                        onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 text-white focus:border-orange-500 outline-none transition-colors"
+                        placeholder="doctor@rhodesisland.ri"
+                      />
+                      <p className="text-[8px] text-zinc-600 font-mono italic pl-1">Unique primary key required for network operations.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Tactical Avatar</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {AVATARS.map(avatar => (
+                        <button
+                          key={avatar.id}
+                          onClick={() => setProfile(prev => ({ ...prev, avatarId: avatar.id }))}
+                          className={`relative aspect-square rounded-md overflow-hidden border-2 transition-all ${profile.avatarId === avatar.id ? 'border-orange-500 scale-95' : 'border-zinc-800 opacity-60 hover:opacity-100'}`}
+                        >
+                          <img src={avatar.url} alt={avatar.name} className="w-full h-full object-cover object-[center_20%]" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-zinc-900/50 border-t border-zinc-800">
+                  <button
+                    onClick={() => {
+                      if (!profile.email || !profile.name) {
+                        addToLog("ERROR: Email and Codename are mandatory.");
+                        return;
+                      }
+                      if (socket) {
+                        socket.emit('identify-user', { email: profile.email, name: profile.name, avatarId: profile.avatarId });
+                      }
+                      setShowProfile(false);
+                    }}
+                    className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white font-black italic uppercase tracking-widest rounded-md scenario-btn-shadow transition-all flex items-center justify-center gap-2 group"
+                  >
+                    <ShieldCheck className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                    Initialize Identity
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {showSettings && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+              <motion.div 
+                key="settings"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
+                  <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+                    <Settings Icon className="text-orange-500" /> Settings
+                  </h2>
+                  <button 
+                    onClick={() => setShowSettings(false)}
+                    className="text-zinc-500 hover:text-white transition-colors"
+                  >
+                    <XCircle className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-8">
+                  <div className="flex flex-col gap-3">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Master Volume</label>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={settings.volume}
+                      onChange={(e) => setSettings(prev => ({ ...prev, volume: parseInt(e.target.value) }))}
+                      className="w-full accent-orange-500"
+                    />
+                    <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                      <span>0%</span>
+                      <span>{settings.volume}%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Sound Effects</label>
+                    <button
+                      onClick={() => setSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
+                      className={`w-full py-3 text-xs font-black rounded border transition-all flex items-center justify-center gap-2 ${settings.soundEnabled ? 'bg-orange-500/10 text-orange-500 border-orange-500' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}
+                    >
+                      {settings.soundEnabled ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                      {settings.soundEnabled ? 'SFX Enabled' : 'SFX Disabled'}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Animation Speed</label>
+                    <div className="flex gap-2">
+                      {[0.5, 1, 2].map(speed => (
+                        <button
+                          key={speed}
+                          onClick={() => setSettings(prev => ({ ...prev, animationSpeed: speed }))}
+                          className={`flex-1 py-2 text-xs font-black rounded border transition-all ${settings.animationSpeed === speed ? 'bg-orange-500 text-black border-orange-500' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}
+                        >
+                          {speed === 0.5 ? 'Slow' : speed === 1 ? 'Normal' : 'Fast'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {showArchives ? (
+            <motion.div 
+              key="archives"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="z-10 w-full max-w-4xl bg-zinc-900 border border-zinc-800 p-4 md:p-8 rounded-2xl shadow-2xl h-[90dvh] md:h-[80vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-4 mb-4 md:mb-8 shrink-0">
+                <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+                  <History className="text-orange-500" /> Archives
+                </h2>
+                <button 
+                  onClick={() => setShowArchives(false)}
+                  className="text-zinc-500 hover:text-white transition-colors"
+                >
+                  <XCircle className="w-5 h-5 md:w-6 md:h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 md:pr-4 custom-scrollbar">
+                <div className="flex flex-col gap-8 md:gap-12">
+                  <section>
+                    <h3 className="text-[10px] md:text-xs font-black text-orange-500 uppercase tracking-[0.3em] mb-4 md:mb-6 border-l-2 border-orange-500 pl-4">Operator Profiles</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                      {OPERATORS.map(op => (
+                        <div key={op.name} className="bg-zinc-800/30 border border-zinc-800 p-3 md:p-4 rounded-lg flex gap-3 md:gap-4">
+                          <div className="w-16 h-16 md:w-20 md:h-20 rounded bg-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
+                            <img src={op.portrait} alt={op.name} className="w-full h-full object-cover grayscale" referrerPolicy="no-referrer" />
+                          </div>
+                          <div>
+                            <div className="text-base md:text-lg font-black italic uppercase tracking-tight">{op.name}</div>
+                            <div className="text-[9px] md:text-[10px] text-orange-500 font-mono uppercase mb-1 md:mb-2">{op.title}</div>
+                            <p className="text-[10px] md:text-xs text-zinc-500 leading-tight md:leading-relaxed">Operator assigned to strategic asset acquisition and sector management protocols.</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-[10px] md:text-xs font-black text-orange-500 uppercase tracking-[0.3em] mb-4 md:mb-6 border-l-2 border-orange-500 pl-4">Sector Intelligence</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                      {Array.from(new Set(tiles.filter(t => t.group).map(t => t.group))).map(group => {
+                        const groupTiles = tiles.filter(t => t.group === group);
+                        return (
+                          <div key={group} className="bg-zinc-800/30 border border-zinc-800 p-3 md:p-4 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2 md:mb-3">
+                              <div className="w-2 h-2 md:w-3 md:h-3 rounded-full" style={{ backgroundColor: groupTiles[0].color }} />
+                              <div className="text-xs md:text-sm font-black uppercase italic tracking-widest">{group} Sector</div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              {groupTiles.map(t => (
+                                <div key={t.id} className="flex justify-between text-[9px] md:text-[10px] text-zinc-400">
+                                  <span>{t.name}</span>
+                                  <span className="font-mono text-orange-500">{t.cost} O</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </motion.div>
+          ) : showJoinRoom ? (
+            <motion.div 
+              key="join-room"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="z-10 w-full max-w-sm bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl max-h-full overflow-y-auto no-scrollbar"
+            >
+              <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter mb-4 md:mb-6">Join <span className="text-orange-500">Mission</span></h2>
+              <div className="flex flex-col gap-3 md:gap-4">
+                <input 
+                  type="text" 
+                  placeholder="ENTER ROOM ID"
+                  value={joinRoomId}
+                  onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
+                  className="w-full bg-zinc-800 border border-zinc-700 p-3 md:p-4 rounded text-center text-lg md:text-xl font-mono font-bold tracking-widest outline-none focus:border-orange-500"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setShowJoinRoom(false)} className="flex-1 py-2 md:py-3 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm">Cancel</button>
+                  <button onClick={handleJoin} className="flex-1 py-2 md:py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm">Connect</button>
+                </div>
+              </div>
+            </motion.div>
+          ) : !showCharacterSelect ? (
+            <motion.div 
+              key="main-menu"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="z-10 flex flex-col items-center gap-3 md:gap-4 max-h-full overflow-hidden py-2"
+            >
+              <div className="flex flex-col items-center gap-1 md:gap-2 shrink-0">
+                <Shield className="text-orange-500 w-10 h-10 md:w-16 md:h-16 animate-pulse" />
+                <h1 className="text-2xl md:text-4xl font-black tracking-tighter uppercase italic text-center leading-none">
+                  Arknights<br />
+                  <span className="text-orange-500">Monopoly</span>
+                </h1>
+                <p className="text-zinc-500 font-mono text-[8px] md:text-[10px] tracking-[0.2em] uppercase">Strategic Asset Acquisition Protocol</p>
+              </div>
+
+              <div className="flex flex-col gap-1 md:gap-1.5 w-56 md:w-64 shrink-0">
+                <div className="flex flex-col gap-0.5 mb-1">
+                  <div className="flex justify-between items-end ml-1">
+                    <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Doctor Codename</label>
+                    <span className="text-[8px] text-orange-500 font-mono">LVL {profile.level}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 p-1 bg-zinc-900 border border-zinc-800 rounded focus-within:border-orange-500 transition-all">
+                    <div 
+                      className="w-6 h-6 rounded bg-zinc-800 border border-zinc-700 overflow-hidden cursor-pointer hover:border-orange-500 transition-all"
+                      onClick={() => setShowProfile(true)}
+                    >
+                      <img 
+                        src={AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url} 
+                        alt="Avatar" 
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <input 
+                      type="text" 
+                      value={profile.name}
+                      onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                      placeholder="ENTER NAME"
+                      className="flex-1 bg-transparent border-none outline-none text-[10px] font-black italic uppercase tracking-tighter text-white placeholder:text-zinc-700"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => {
+                    setGameState(prev => ({ ...prev, gameMode: 'SINGLEPLAYER' }));
+                    setShowCharacterSelect(true);
+                  }}
+                  className="w-full py-1.5 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all flex items-center justify-center gap-2 text-[10px]"
+                >
+                  <Play className="w-3 h-3" /> Singleplayer
+                </button>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button 
+                    onClick={handleHost}
+                    className="py-1.5 border border-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all flex items-center justify-center gap-2 text-[9px]"
+                  >
+                    <Wifi className="w-2.5 h-2.5" /> Host
+                  </button>
+                  <button 
+                    onClick={() => setShowJoinRoom(true)}
+                    className="py-1.5 border border-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all flex items-center justify-center gap-2 text-[9px]"
+                  >
+                    <Users className="w-2.5 h-2.5" /> Join
+                  </button>
+                </div>
+
+                <button 
+                  onClick={handleQueue}
+                  disabled={isQueuing}
+                  className={`w-full py-1.5 border border-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all flex items-center justify-center gap-2 text-[9px] ${isQueuing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {isQueuing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Globe className="w-2.5 h-2.5" />}
+                  {isQueuing ? 'Searching...' : 'Online Queue'}
+                </button>
+
+                <div className="h-px bg-zinc-800 my-0.5" />
+
+                <div className="grid grid-cols-3 gap-1">
+                  <button 
+                    onClick={() => setShowProfile(true)}
+                    className="py-1.5 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all text-[8px] flex items-center justify-center gap-1"
+                  >
+                    Profile
+                  </button>
+                  <button 
+                    onClick={() => setShowArchives(true)}
+                    className="py-1.5 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all text-[8px]"
+                  >
+                    Archives
+                  </button>
+                  <button 
+                    onClick={() => setShowSettings(true)}
+                    className="py-1.5 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all text-[8px]"
+                  >
+                    Settings
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="char-select"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden p-1 md:p-0"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-1 gap-2 shrink-0">
+                <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0">Select <span className="text-orange-500">Operator</span></h2>
+                
+                {gameState.roomId && (
+                  <div className="flex-1 flex items-center justify-center gap-4 px-4 overflow-hidden">
+                    <div className="hidden sm:flex flex-col items-start min-w-0">
+                      <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-0.5">Mission Sector</div>
+                      <div className="text-[10px] font-mono text-orange-500 font-bold tracking-widest truncate">{gameState.roomId}</div>
+                    </div>
+                    
+                  <div className="h-6 w-px bg-zinc-800 hidden sm:block" />
+
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none hidden sm:block">Operators</div>
+                      <div className="flex -space-x-1.5 shrink-0">
+                        {Array.isArray(gameState.players) && gameState.players.length > 0 ? (
+                          gameState.players.map(p => (
+                            <div key={p.id} className="w-5 h-5 md:w-7 md:h-7 rounded-full border-2 border-zinc-900 overflow-hidden bg-zinc-800 ring-1 ring-zinc-700" title={p.name}>
+                              <img 
+                                src={p?.avatar?.url || '/Resources/Characters/Icon/Alive/Amiya Alive.png'} 
+                                alt={p.name} 
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-[10px] text-zinc-500 font-mono italic">Sector scanning...</div>
+                        )}
+                        {Array.isArray(gameState.players) && Array.from({ length: Math.max(0, 4 - gameState.players.length) }).map((_, i) => (
+                          <div key={i} className="w-5 h-5 md:w-7 md:h-7 rounded-full border-2 border-zinc-900 bg-zinc-900/50 flex items-center justify-center ring-1 ring-zinc-800 border-dashed">
+                            <Users className="w-2.5 h-2.5 md:w-3.5 h-3.5 text-zinc-800" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {gameState.isHost ? (
+                      <button 
+                        onClick={() => {
+                          if (socket && gameState.roomId) {
+                            socket.emit('start-game', gameState.roomId);
+                          }
+                        }}
+                        disabled={gameState.players.length !== 4 || gameState.players.length !== selectedOperators.length}
+                        className={`w-auto px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition-all font-black text-[10px] md:text-xs tracking-widest uppercase italic overflow-hidden relative group/start shrink-0 ${
+                          gameState.players.length === 4 
+                            ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:scale-[1.02] active:scale-95' 
+                            : 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {gameState.players.length === 4 && (
+                          <motion.div 
+                            animate={{ x: ['-100%', '200%'] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]"
+                          />
+                        )}
+                        <Play className={`w-4 h-4 ${gameState.players.length === 4 ? 'animate-pulse' : ''}`} /> 
+                        {gameState.players.length < 4 ? `SQUAD: ${gameState.players.length}/4` : 'Deploy Squad'}
+                      </button>
+                    ) : (
+                      <div className="px-3 py-1.5 bg-zinc-800/50 border border-zinc-700 text-zinc-400 font-black uppercase italic tracking-widest rounded-sm text-[9px] md:text-[11px] flex items-center gap-2">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Awaiting Command
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button 
+                  onClick={() => {
+                    if (gameState.roomId && socket) {
+                      socket.emit('leave-room', gameState.roomId);
+                    }
+                    setShowCharacterSelect(false);
+                    setPreviewOperator(null);
+                    setGameState(prev => ({ ...prev, gameMode: null, roomId: null, isHost: false, players: [] }));
+                  }}
+                  className="text-zinc-500 hover:text-white transition-colors p-1"
+                >
+                  <LogOut className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 flex flex-col gap-1 overflow-hidden mt-1">
+                <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
+                  <div className="grid grid-cols-5 gap-1 md:gap-2 pb-2">
+                    {OPERATORS.map((op) => {
+                      const isSelected = selectedOperators.includes(op.name);
+                      const isPreview = previewOperator?.name === op.name;
+                      const selectingPlayer = gameState.players.find(p => (typeof p.operator === 'string' ? p.operator : p.operator?.name) === op.name);
+                      
+                      return (
+                        <motion.div
+                          key={op.name}
+                          whileHover={!isSelected ? { scale: 1.02 } : {}}
+                          whileTap={!isSelected ? { scale: 0.98 } : {}}
+                          onClick={() => !isSelected && setPreviewOperator(op)}
+                          className={`group relative aspect-[3/4] border rounded-md overflow-hidden transition-all ${isSelected ? 'bg-zinc-800/50 border-zinc-800 opacity-50 cursor-not-allowed' : isPreview ? 'bg-zinc-900 border-orange-500 ring-1 ring-orange-500/50 cursor-pointer' : 'bg-zinc-900 border-zinc-800 cursor-pointer hover:border-orange-500'}`}
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10" />
+                          <img 
+                            src={op.portrait} 
+                            alt={op.name} 
+                            referrerPolicy="no-referrer"
+                            className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${isSelected ? 'grayscale' : 'grayscale group-hover:grayscale-0'}`}
+                          />
+                          <div className="absolute bottom-0 left-0 w-full p-1 md:p-1.5 z-20">
+                            <div className="text-[5px] md:text-[8px] font-mono text-orange-500 mb-0 truncate">{op.title}</div>
+                            <div className="text-[8px] md:text-xs font-black italic uppercase tracking-tighter leading-none truncate">{op.name}</div>
+                          </div>
+                          <div className="absolute top-1 right-1 w-1 h-1 md:w-1.5 md:h-1.5 rounded-full z-20" style={{ backgroundColor: op.color }} />
+                          {isSelected && (
+                            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/40">
+                              <div className="flex flex-col items-center gap-0.5 md:gap-1">
+                                <div className="text-[5px] md:text-[7px] font-black uppercase italic tracking-widest text-white bg-red-500 px-1 py-0.5 rotate-[-15deg]">Deployed</div>
+                                {selectingPlayer && (
+                                  <div className="text-[5px] md:text-[6px] font-bold text-zinc-300 uppercase tracking-widest bg-black/60 px-1 py-0.5 rounded truncate max-w-[90%]">
+                                    {selectingPlayer.name}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {previewOperator && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="w-full flex flex-col items-center gap-1 p-1.5 md:p-2 bg-zinc-900 border-t border-orange-500/30 shadow-[0_-10px_20px_rgba(0,0,0,0.5)] shrink-0"
+                  >
+                    <div className="flex flex-row items-center gap-2 md:gap-4 w-full max-w-2xl overflow-hidden">
+                      <div className="flex gap-1.5 shrink-0">
+                        <div className="w-8 h-8 md:w-14 md:h-14 rounded border border-zinc-800 overflow-hidden shrink-0 bg-zinc-950">
+                          <img 
+                            src={AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url} 
+                            alt="Avatar" 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="w-8 h-8 md:w-14 md:h-14 rounded border border-orange-500 overflow-hidden shrink-0 shadow-lg shadow-orange-500/20 bg-zinc-950">
+                          <img src={previewOperator.portrait} alt={previewOperator.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                      </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="text-[5px] md:text-[8px] font-black text-orange-500 uppercase tracking-[0.2em] mb-0 truncate">{previewOperator.title}</div>
+                        <div className="text-xs md:text-xl font-black italic uppercase tracking-tighter leading-tight truncate">{previewOperator.name}</div>
+                        <p className="text-zinc-400 text-[5px] md:text-[9px] leading-tight max-w-xs italic line-clamp-1 md:line-clamp-2">"Ready for deployment. Strategic objectives identified. Awaiting final confirmation, {profile.name}."</p>
+                      </div>
+                      <div className="flex flex-col gap-1 w-20 md:w-32 shrink-0">
+                        <button 
+                          onClick={() => startGame(previewOperator)}
+                          className="w-full px-2 md:px-4 py-1 md:py-1.5 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-1 group text-[8px] md:text-[10px]"
+                        >
+                          <Shield className="w-3 h-3 group-hover:rotate-12 transition-transform" />
+                          Confirm
+                        </button>
+                        <button 
+                          onClick={() => setPreviewOperator(null)}
+                          className="w-full px-2 md:px-4 py-0.5 md:py-1 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:text-zinc-300 hover:border-zinc-700 transition-all text-[7px] md:text-[9px]"
+                        >
+                          Reselect
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {/* Global Modals */}
+        <AnimatePresence>
+          {showProfile && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+              <motion.div 
+                key="profile"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl max-h-full overflow-y-auto no-scrollbar"
+              >
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-4 mb-4 md:mb-8 shrink-0">
+                  <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+                    <User className="text-orange-500" /> Profile
+                  </h2>
+                  <button onClick={() => setShowProfile(false)} className="text-zinc-500 hover:text-white"><XCircle className="w-5 h-5 md:w-6 md:h-6" /></button>
+                </div>
+                <div className="flex flex-col gap-4 md:gap-6">
+                  <div className="flex items-center gap-4 md:gap-6">
+                    <div className="w-16 h-16 md:w-24 md:h-24 rounded-xl bg-zinc-800 border-2 border-orange-500 overflow-hidden shrink-0">
+                      <img 
+                        src={AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url} 
+                        alt="Avatar" 
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Codename</label>
+                      <input 
+                        type="text" 
+                        value={profile.name}
+                        onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                        className="w-full bg-transparent border-none outline-none text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2 md:mb-4">Select Avatar</label>
+                    <div className="grid grid-cols-5 gap-2 md:gap-3">
+                      {AVATARS.map((avatar) => (
+                        <button
+                          key={avatar.id}
+                          onClick={() => setProfile(prev => ({ ...prev, avatarId: avatar.id }))}
+                          className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                            profile.avatarId === avatar.id ? 'border-orange-500 scale-110 z-10' : 'border-zinc-800 hover:border-zinc-600'
+                          }`}
+                        >
+                          <img 
+                            src={avatar.url} 
+                            alt={avatar.name} 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                          {profile.avatarId === avatar.id && (
+                            <div className="absolute inset-0 bg-orange-500/20 flex items-center justify-center">
+                              <CheckCircle2 className="w-4 h-4 md:w-6 md:h-6 text-orange-500" />
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 md:gap-4">
+                    <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
+                      <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>
+                      <div className="text-lg md:text-2xl font-black italic">{profile.matches}</div>
+                    </div>
+                    <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
+                      <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase text-orange-500">Wins</div>
+                      <div className="text-lg md:text-2xl font-black italic text-orange-500">{profile.wins}</div>
+                    </div>
+                    <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
+                      <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase text-red-500">Losses</div>
+                      <div className="text-lg md:text-2xl font-black italic text-red-500">{profile.losses}</div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans selection:bg-orange-500/30 overflow-hidden relative flex flex-col landscape:flex-row">
+      {/* Portrait Orientation Overlay */}
+      <div className="fixed inset-0 z-[200] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
+        <div className="w-24 h-24 mb-6 relative">
+          <motion.div
+            animate={{ rotate: 90 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            className="w-full h-full border-4 border-orange-500 rounded-xl flex items-center justify-center"
+          >
+            <Smartphone className="w-12 h-12 text-orange-500" />
+          </motion.div>
+          <motion.div 
+            animate={{ opacity: [0, 1, 0] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className="absolute -right-4 top-1/2 -translate-y-1/2"
+          >
+            <RotateCw className="w-8 h-8 text-orange-500" />
+          </motion.div>
+        </div>
+        <h2 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Tactical Rotation Required</h2>
+        <p className="text-zinc-500 text-sm max-w-xs font-medium leading-relaxed">
+          The Rhodes Island Strategic Interface is optimized for <span className="text-orange-500 font-bold italic">Landscape Orientation</span>. Please rotate your device to continue the operation.
+        </p>
+      </div>
+
+      {/* Panel Toggles (Universal) */}
+      <div className="fixed left-4 top-1/2 -translate-y-1/2 w-14 z-50 flex flex-col items-center justify-center gap-6 p-2 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-2xl shadow-2xl">
+        <button
+          onClick={() => {
+            setShowMobileTeam(!showMobileTeam);
+            setShowMobileLog(false);
+            setShowMobileReport(false);
+          }}
+          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileTeam ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          title="Team Info"
+        >
+          <Users className="w-6 h-6" />
+        </button>
+        <button
+          onClick={() => {
+            setShowMobileLog(!showMobileLog);
+            setShowMobileTeam(false);
+            setShowMobileReport(false);
+          }}
+          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileLog ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          title="Mission Log"
+        >
+          <ScrollText className="w-6 h-6" />
+        </button>
+        <button
+          onClick={() => {
+            setShowMobileReport(!showMobileReport);
+            setShowMobileTeam(false);
+            setShowMobileLog(false);
+          }}
+          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileReport ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          title="Intelligence Report"
+        >
+          <Search className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* Chat System */}
+      <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-4 landscape:bottom-2 landscape:right-24">
+        <AnimatePresence>
+          {showChat && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              className="w-80 h-96 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+            >
+              <div className="p-3 border-b border-zinc-800 bg-zinc-800/50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-orange-500" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Tactical Comms</span>
+                </div>
+                <button onClick={() => setShowChat(false)} className="text-zinc-500 hover:text-white">
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 scrollbar-hide">
+                {gameState.chatMessages.map((msg) => (
+                  <div key={msg.id} className={`flex gap-2 ${msg.senderId === socket?.id ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className="w-8 h-8 rounded-full border border-zinc-800 overflow-hidden shrink-0 bg-zinc-900 mt-1">
+                      <img src={msg.senderAvatar} alt={msg.senderName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                    <div className={`flex flex-col ${msg.senderId === socket?.id ? 'items-end' : 'items-start'} max-w-[80%]`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[8px] font-black uppercase text-zinc-500">{msg.senderName}</span>
+                        <span className="text-[8px] text-zinc-600 font-mono">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <div className={`px-3 py-2 rounded-sm text-xs ${msg.senderId === socket?.id ? 'bg-orange-500 text-black font-medium' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
+                        {msg.text}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
+
+              <div className="p-3 border-t border-zinc-800 bg-zinc-900 flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                  placeholder="Type a message..."
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500 transition-colors"
+                />
+                <button 
+                  onClick={handleSendMessage}
+                  className="p-2 bg-orange-500 text-black rounded-sm hover:bg-orange-400 transition-colors"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <button
+          onClick={() => setShowChat(!showChat)}
+          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all relative landscape:w-10 landscape:h-10 ${showChat ? 'bg-zinc-800 text-orange-500 border border-orange-500/50' : 'bg-orange-500 text-black hover:scale-110'}`}
+        >
+          {showChat ? <XCircle className="w-6 h-6 landscape:w-4 landscape:h-4" /> : <MessageSquare className="w-6 h-6 landscape:w-4 landscape:h-4" />}
+          {!showChat && gameState.chatMessages.length > 0 && (
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-zinc-950">
+              {gameState.chatMessages.length > 9 ? '9+' : gameState.chatMessages.length}
+            </div>
+          )}
+        </button>
+      </div>
+
+      <div className="hidden">
+        <button 
+          onClick={() => setActiveTab('board')}
+          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'board' ? 'text-orange-500' : 'text-zinc-500'}`}
+        >
+          <LayoutGrid className="w-5 h-5" />
+          <span className="text-[8px] font-black uppercase tracking-widest">Board</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('players')}
+          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'players' ? 'text-orange-500' : 'text-zinc-500'}`}
+        >
+          <Users className="w-5 h-5" />
+          <span className="text-[8px] font-black uppercase tracking-widest">Team</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('log')}
+          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'log' ? 'text-orange-500' : 'text-zinc-500'}`}
+        >
+          <ScrollText className="w-5 h-5" />
+          <span className="text-[8px] font-black uppercase tracking-widest">Log</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('property')}
+          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'property' ? 'text-orange-500' : 'text-zinc-500'}`}
+        >
+          <Package className="w-5 h-5" />
+          <span className="text-[8px] font-black uppercase tracking-widest">Assets</span>
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showMobileTeam && (
+          <motion.div 
+            initial={{ opacity: 0, x: -100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -100 }}
+            className="fixed left-20 top-10 bottom-10 w-80 z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Shield className="text-orange-500 w-6 h-6" />
+                <h1 className="text-xl font-black tracking-tighter uppercase italic">Rhodes Island</h1>
+              </div>
+              <button 
+                className="text-zinc-500 hover:text-white transition-colors" 
+                onClick={() => setShowMobileTeam(false)}
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            {gameState.roomId && (
+              <div className="p-3 bg-zinc-800/50 border border-zinc-800 rounded flex flex-col gap-1">
+                <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Sector ID</div>
+                <div className="text-xl font-mono font-bold text-orange-500 tracking-widest">{gameState.roomId}</div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-4 overflow-y-auto no-scrollbar flex-1">
+          {gameState.players.map((p, i) => (
+            <div 
+              key={p.id}
+              className={`p-3 rounded-lg border transition-all relative flex flex-col gap-3 ${p.isBankrupt ? 'border-red-900/40 bg-red-950/10' : i === gameState.currentPlayerIndex ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_20px_rgba(249,115,22,0.15)]' : 'border-zinc-800 bg-zinc-800/20'}`}
+            >
+              {p.isBankrupt && (
+                <div className="absolute inset-0 z-10 bg-red-950/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+                  <div className="border-2 border-red-500 px-3 py-0.5 rotate-[-15deg] shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                    <span className="text-red-500 font-black italic text-sm tracking-tighter uppercase font-mono">Terminated</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* Operator Identity & Finance Row */}
+              <div className="flex items-center gap-3">
+                <div className="flex -space-x-1 shrink-0">
+                  <div className="w-10 h-10 rounded-full border-2 border-zinc-900 overflow-hidden bg-zinc-900 shadow-lg relative z-20">
+                    <img src={p.avatar.url} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  </div>
+                  <div className="w-10 h-10 overflow-hidden relative z-10 translate-y-0.5">
+                    <img 
+                      src={`/Resources/Characters/Icon/${p.isBankrupt ? 'Dead' : 'Alive'}/${
+                        p.operator.name === 'Exusiai' ? 'Exusia' : 
+                        p.operator.name === "Ch'en" ? (p.isBankrupt ? "Ch'en" : "Chen") : 
+                        p.operator.name
+                      } ${p.isBankrupt ? 'Dead' : 'Alive'}.png`} 
+                      alt={p.isBankrupt ? 'Terminated' : 'Active'} 
+                      className="w-full h-full object-cover" 
+                      referrerPolicy="no-referrer" 
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+                      <span className="font-black text-[11px] uppercase italic tracking-tight truncate">{p.name}</span>
+                    </div>
+                    {i === gameState.currentPlayerIndex && !p.isBankrupt && (
+                      <div className="flex items-center gap-1">
+                        <History className="w-2.5 h-2.5 text-orange-500 animate-pulse" />
+                        <span className={`text-[10px] font-black font-mono ${gameState.turnTimer <= 10 ? 'text-red-500' : 'text-orange-500'}`}>
+                          {gameState.turnTimer}s
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-500/10 border border-orange-500/20 rounded-sm">
+                      <Coins className="w-2.5 h-2.5 text-orange-500" />
+                      <span className="text-orange-500 font-mono text-[9px] font-black">{p.orundum}</span>
+                    </div>
+                    <div className="flex-1 h-1 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                      <div className="h-full bg-orange-500 shadow-[0_0_5px_rgba(249,115,22,0.5)]" style={{ width: `${Math.min(100, (p.orundum / STARTING_ORUNDUM) * 100)}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                {p.id !== localPlayer?.id && !p.isBankrupt && (
+                  <button
+                    onClick={() => startTrade(p.id)}
+                    className="p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg text-orange-500 hover:bg-orange-500 hover:text-black transition-all active:scale-90"
+                    title="Initiate Negotiation"
+                  >
+                    <ArrowLeftRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Enhanced Territory Section */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <Globe className="w-2.5 h-2.5" /> Sector Control
+                  </div>
+                  <div className="text-[8px] font-mono text-zinc-600">{(p.properties || []).length} Units</div>
+                </div>
+                
+                {(p.properties || []).length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* Simplified Property List for Mobile/Sidebar */}
+                    {tiles
+                      .filter(t => (p.properties || []).includes(t.id))
+                      .map(t => {
+                        const isSelected = gameState.selectedTileId === t.id;
+                        return (
+                          <button 
+                            key={t.id} 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setGameState(prev => ({ ...prev, selectedTileId: t.id }));
+                              setShowPropertyModal(true);
+                            }}
+                            className={`group/tile px-2 py-1 rounded border transition-all flex items-center gap-2 ${t.isMortgaged ? 'opacity-50 grayscale' : isSelected ? 'border-white bg-white/10 ring-1 ring-white/20' : 'border-white/5 bg-zinc-900/50 hover:border-white/20'}`}
+                            style={{ 
+                              borderLeft: `3px solid ${t.color || '#333'}`,
+                            }}
+                          >
+                            <span className={`text-[8px] font-black uppercase tracking-tight ${isSelected ? 'text-white' : 'text-zinc-400 group-hover/tile:text-zinc-200'}`}>
+                              {t.name}
+                            </span>
+                            {t.dorms > 0 && (
+                              <div className="flex gap-0.5">
+                                {Array.from({ length: t.dorms }).map((_, idx) => (
+                                  <div key={idx} className="w-1 h-1 bg-white/50 rounded-full" />
+                                ))}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <div className="py-2 border border-dashed border-zinc-800 rounded bg-zinc-900/10 flex items-center justify-center">
+                    <span className="text-[7px] text-zinc-700 uppercase font-bold italic tracking-widest">No Operational Assets</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Intelligence Summary (Skills) */}
+              {p.operator.skill && (
+                <div className="pt-2 border-t border-zinc-800/50 flex items-start gap-2">
+                  <Zap className="w-3 h-3 text-white/20 shrink-0 mt-0.5" />
+                  <div className="text-[8px] text-zinc-500 italic leading-snug line-clamp-2">
+                    {p.operator.skill.description}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMobileLog && (
+          <motion.div 
+            initial={{ opacity: 0, x: -100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -100 }}
+            className="fixed left-20 top-10 bottom-10 w-80 z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                <History className="w-3 h-3" /> Mission Log
+              </div>
+              <button className="text-zinc-500 hover:text-white transition-colors" onClick={() => setShowMobileLog(false)}>
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2 flex flex-col gap-2 no-scrollbar">
+              {gameState.log.map((entry, i) => (
+                <div key={i} className="text-xs text-zinc-400 font-mono border-l-2 border-zinc-800 pl-3 py-2 bg-zinc-900/50 rounded-r">
+                  {entry}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Main Game Area */}
+      <div ref={containerRef} className={`flex-1 relative flex items-center justify-center p-2 lg:p-8 overflow-hidden landscape:p-0 ${activeTab === 'board' ? 'flex' : 'hidden lg:flex landscape:flex'}`}>
+        {/* Tactical Grid Background */}
+        {settings.showGrid && (
+          <div className="absolute inset-0 opacity-5 pointer-events-none" 
+               style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+        )}
+
+        {/* Monopoly Board */}
+        <div 
+          className="relative z-10 shadow-2xl rounded-sm w-[490px] h-[490px] origin-center transition-transform duration-500 overflow-hidden"
+          style={{ 
+            backgroundImage: `url("${MAP_IMAGE_URL}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            transform: `scale(${boardScale})`
+          }}
+        >
+          {/* Top Row */}
+          <div className="flex">
+            {renderTile(tiles[20], 'corner')}
+            {[21, 22, 23, 24, 25, 26, 27, 28, 29].map(id => renderTile(tiles[id], 'top'))}
+            {renderTile(tiles[30], 'corner')}
+          </div>
+          
+          <div className="flex justify-between">
+            {/* Left Column */}
+            <div className="flex flex-col-reverse">
+              {[11, 12, 13, 14, 15, 16, 17, 18, 19].map(id => renderTile(tiles[id], 'left'))}
+            </div>
+
+            {/* Center Area */}
+            <div className="w-[360px] h-[360px] flex flex-col items-center justify-between py-4 relative overflow-hidden">
+              <div className="z-10 text-center mt-2">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={gameState.message}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="text-xl font-black italic uppercase tracking-tighter text-orange-500 mb-1 max-w-[300px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
+                  >
+                    {gameState.message}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="z-10 flex flex-col items-center gap-3 mb-2">
+                <div className="flex gap-4 justify-center items-center">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="text-xs font-black text-zinc-400 uppercase tracking-widest">Sector Dice</div>
+                    <div className="flex gap-2 mb-2 p-2 bg-black/40 rounded-lg border border-orange-500/30 backdrop-blur-sm min-h-[72px] items-center justify-center">
+                      {gameState.isRolling ? (
+                        <RollingDiceAnimation />
+                      ) : (
+                        <>
+                          <Dice value={gameState.dice[0]} theme="lungmen" diceIndex={0} />
+                          <Dice value={gameState.dice[1]} theme="rhode_island" diceIndex={1} />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 items-center min-h-[40px]">
+                  {isLocalTurn && (
+                    <>
+                      <div className="flex gap-1 justify-center flex-wrap max-w-[300px]">
+                        {currentPlayer?.inJail && !gameState.hasRolled && (
+                          <>
+                            <button
+                              onClick={payJailFee}
+                              disabled={(currentPlayer?.orundum || 0) < JAIL_FEE}
+                              className="px-2 py-1 bg-zinc-900 border border-red-500 text-red-500 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500/10 disabled:opacity-50 transition-all flex items-center gap-1 shadow-lg shadow-red-500/10"
+                            >
+                              <ShieldAlert className="w-3 h-3" /> Bail ({JAIL_FEE})
+                            </button>
+                            {currentPlayer?.hasGetOutOfJailFreeCard && (
+                              <button
+                                onClick={() => {
+                                  const updatedPlayers = gameState.players.map(p => 
+                                    p.id === currentPlayer?.id ? { ...p, inJail: false, jailTurns: 0, hasGetOutOfJailFreeCard: false } : p
+                                  );
+                                  setGameState(prev => ({ ...prev, players: updatedPlayers, message: `${currentPlayer?.name} used a card to leave detention!` }));
+                                  addToLog(`${currentPlayer?.name} used a card to leave detention.`);
+                                }}
+                                className="px-2 py-1 bg-zinc-900 border border-blue-500 text-blue-500 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-blue-500/10 transition-all flex items-center gap-1 shadow-lg shadow-blue-500/10"
+                              >
+                                <CheckCircle2 className="w-3 h-3" /> Use Card
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        <button
+                          onClick={rollDice}
+                          disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || !!gameState.winner}
+                          className="px-3 py-1.5 bg-orange-500 text-black text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1 shadow-xl shadow-orange-500/20"
+                        >
+                          {gameState.isRolling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                          {gameState.canRollAgain ? 'Roll Again' : 'Roll Dice'}
+                        </button>
+                        
+                        {currentPlayer && ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[currentPlayer.position].type) && !tiles[currentPlayer.position].ownerId && !gameState.activeAuction && (
+                          <>
+                            <button
+                              onClick={buyProperty}
+                              disabled={(currentPlayer?.orundum || 0) < (tiles[currentPlayer.position].cost || 0) || !gameState.hasRolled}
+                              className="px-2 py-1 border border-orange-500 text-orange-500 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-500/10 disabled:opacity-50 transition-all flex items-center gap-1 shadow-lg shadow-orange-500/10"
+                            >
+                              <Package className="w-3 h-3" /> Acquire
+                            </button>
+                            <button
+                              onClick={() => startAuction(currentPlayer.position)}
+                              disabled={!gameState.hasRolled}
+                              className="px-2 py-1 border border-zinc-700 text-zinc-400 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-800 disabled:opacity-30 transition-all flex items-center gap-1 shadow-lg shadow-lg"
+                            >
+                              <TrendingUp className="w-3 h-3" /> Auction
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          onClick={nextTurn}
+                          disabled={gameState.isRolling || !gameState.hasRolled || gameState.canRollAgain || !!gameState.winner || (currentPlayer?.orundum || 0) < 0}
+                          className="px-2 py-1 border border-zinc-100 text-zinc-100 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1 shadow-lg"
+                        >
+                          <LogOut className="w-3 h-3" /> End Turn
+                        </button>
+
+                        {currentPlayer && currentPlayer.orundum < 0 && (
+                          <button
+                            onClick={() => handleBankruptcy(currentPlayer)}
+                            className="px-2 py-1 bg-red-600 text-white text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500 transition-all flex items-center gap-1 shadow-xl shadow-red-500/20"
+                          >
+                            <AlertTriangle className="w-3 h-3" /> Bankrupt
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex gap-1 justify-center mt-2 flex-wrap max-w-[300px]">
+                        {gameState.players.filter(p => p.id !== localPlayer?.id && !p.isBankrupt).map(p => (
+                          <button
+                            key={p.id}
+                            onClick={() => startTrade(p.id)}
+                            className="px-1 py-0.5 border border-zinc-700 bg-zinc-900/50 text-zinc-400 text-[6px] font-black uppercase rounded-sm hover:border-orange-500 hover:text-orange-500 transition-all flex items-center gap-0.5 disabled:opacity-30 disabled:cursor-not-allowed shadow-md"
+                          >
+                            <ArrowLeftRight className="w-2 h-2" /> Trade: {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div className="flex flex-col">
+              {[31, 32, 33, 34, 35, 36, 37, 38, 39].map(id => renderTile(tiles[id], 'right'))}
+            </div>
+          </div>
+
+          {/* Bottom Row */}
+          <div className="flex flex-row-reverse">
+            {renderTile(tiles[0], 'corner')}
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(id => renderTile(tiles[id], 'bottom'))}
+            {renderTile(tiles[10], 'corner')}
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Action Bar */}
+      {activeTab === 'board' && !gameState.winner && !gameState.activeAuction && !gameState.activeTrade && isLocalTurn && (
+        <div className="lg:hidden bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 p-2 z-40 flex gap-1.5 overflow-x-auto no-scrollbar shadow-[0_-10px_30px_rgba(0,0,0,0.5)] landscape:border-t-0 landscape:border-l landscape:w-16 landscape:flex-col landscape:h-full landscape:justify-center landscape:p-1">
+          <button
+            onClick={rollDice}
+            disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain)}
+            className="flex-1 min-w-[80px] py-3 bg-orange-500 text-black text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-50 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
+          >
+            <Zap className="w-4 h-4 landscape:w-3 landscape:h-3" /> 
+            <span className="landscape:text-[9px]">{gameState.canRollAgain ? 'Again' : 'Roll'}</span>
+          </button>
+          
+          {currentPlayer && ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[currentPlayer.position].type) && !tiles[currentPlayer.position].ownerId && (
+            <>
+              <button
+                onClick={buyProperty}
+                disabled={!isLocalTurn || currentPlayer.orundum < (tiles[currentPlayer.position].cost || 0)}
+                className="flex-1 min-w-[80px] py-3 border-2 border-orange-500 text-orange-500 text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-50 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
+              >
+                <Package className="w-4 h-4 landscape:w-3 landscape:h-3" /> 
+                <span className="landscape:text-[9px]">Buy</span>
+              </button>
+              <button
+                onClick={() => startAuction(currentPlayer.position)}
+                disabled={!gameState.hasRolled}
+                className="flex-1 min-w-[80px] py-3 border-2 border-zinc-700 text-zinc-400 text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-30 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
+              >
+                <TrendingUp className="w-4 h-4 landscape:w-3 landscape:h-3" /> 
+                <span className="landscape:text-[9px]">Auction</span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={nextTurn}
+            disabled={gameState.isRolling || !gameState.hasRolled || gameState.canRollAgain}
+            className="flex-1 min-w-[80px] py-3 border-2 border-zinc-700 text-zinc-400 text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-30 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
+          >
+            <LogOut className="w-4 h-4 landscape:w-3 landscape:h-3" /> 
+            <span className="landscape:text-[9px]">End</span>
+          </button>
+        </div>
+      )}
+
+
+      {/* Auction Modal */}
+      <AnimatePresence>
+        {gameState.activeAuction && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-zinc-900 border border-zinc-800 p-10 rounded-2xl max-w-lg w-full shadow-2xl text-center"
+            >
+              <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-2 flex items-center justify-center gap-3">
+                <TrendingUp className="text-orange-500" /> Sector Auction
+              </h2>
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${gameState.auctionTimer <= 5 ? 'bg-red-500/20 text-red-500 animate-pulse' : 'bg-orange-500/10 text-orange-500'}`}>
+                  <History size={12} />
+                  Time Remaining: {gameState.auctionTimer}s
+                </div>
+              </div>
+              <p className="text-zinc-400 text-sm mb-6 uppercase font-bold">{tiles[gameState.activeAuction.tileId].name}</p>
+
+              <div className="bg-zinc-800/50 p-6 rounded-lg border border-zinc-800 mb-8">
+                <div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Current Highest Bid</div>
+                <div className="text-4xl font-black text-orange-500 font-mono">
+                  {gameState.activeAuction.highestBid} <span className="text-sm">Orundum</span>
+                </div>
+                {gameState.activeAuction.highestBidderId && (
+                  <div className="mt-4 flex items-center justify-center gap-3 p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                    <div className="w-8 h-8 rounded-full border border-orange-500/50 overflow-hidden bg-zinc-900">
+                      <img 
+                        src={gameState.players.find(p => p.id === gameState.activeAuction?.highestBidderId)?.avatar?.url} 
+                        alt="Highest Bidder" 
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-[8px] font-black text-orange-500 uppercase tracking-widest">Leading Bidder</div>
+                      <div className="text-xs font-bold text-zinc-300">
+                        {gameState.players.find(p => p.id === gameState.activeAuction?.highestBidderId)?.name}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-8">
+                <div className="text-[10px] font-black text-zinc-500 uppercase mb-3">Current Bidder</div>
+                <div className="flex items-center justify-center gap-3">
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-full border-2 border-zinc-800 overflow-hidden bg-zinc-900">
+                      <img 
+                        src={gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction?.currentPlayerIndex || 0])?.avatar?.url} 
+                        alt="Current Bidder" 
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-zinc-900" style={{ backgroundColor: gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction?.currentPlayerIndex || 0])?.color }} />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-black text-lg italic uppercase tracking-tighter leading-none">
+                      {gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction?.currentPlayerIndex || 0])?.name}
+                    </div>
+                    <div className="text-[9px] text-zinc-500 font-mono uppercase">
+                      {gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction?.currentPlayerIndex || 0])?.operator?.title}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {!gameState.activeAuction?.biddingPlayerIds.includes(localPlayer?.id || '') && (
+                <div className="flex flex-col gap-3 py-6 border-y border-zinc-800 my-4">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-600">
+                      <ShieldAlert className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="text-zinc-400 text-xs font-black uppercase tracking-widest leading-none mb-1">Observation Mode</div>
+                      <div className="text-[10px] text-zinc-600 uppercase font-bold tracking-tight px-4">Withdrawal finalized. Monitoring sector auction results.</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {gameState.activeAuction?.biddingPlayerIds.includes(localPlayer?.id || '') && !gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction?.currentPlayerIndex || 0])?.isAI && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-2">
+                    {[1, 10, 50, 100].map(amt => (
+                      <button
+                        key={amt}
+                        onClick={() => placeBid(gameState.activeAuction!.highestBid + amt)}
+                        disabled={!isAuctionTurn || gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex])!.orundum < gameState.activeAuction!.highestBid + amt}
+                        className="flex-1 py-2 bg-zinc-800 border border-zinc-700 text-orange-500 text-xs font-black rounded hover:bg-orange-500/10 disabled:opacity-30 transition-all"
+                      >
+                        +{amt}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={skipBid}
+                    disabled={!isAuctionTurn}
+                    className="w-full py-3 border-2 border-zinc-700 text-zinc-400 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-800 transition-all disabled:opacity-30"
+                  >
+                    Pass
+                  </button>
+                </div>
+              )}
+              
+              {gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction?.currentPlayerIndex || 0])?.isAI && (
+                <div className="text-zinc-500 italic text-sm animate-pulse">
+                  Operator is considering bid...
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Property Detailed Modal */}
+      <AnimatePresence>
+        {showPropertyModal && gameState.selectedTileId !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] no-scrollbar"
+            >
+              {(() => {
+                const tile = tiles[gameState.selectedTileId];
+                const owner = gameState.players.find(p => p.id === tile.ownerId);
+                const groupTiles = tiles.filter(t => t.group === tile.group);
+                const ownsAll = owner && groupTiles.every(t => t.ownerId === owner.id);
+                const currentRent = owner ? calculateRent(tile, owner) : (tile.rent || 0);
+                const effectiveBuildCost = owner ? calculateBuildCost(tile, owner) : (tile.buildCost || 0);
+
+                return (
+                  <>
+                    <div className="h-4 w-full" style={{ backgroundColor: tile.color || '#333' }} />
+                    <div className="p-8">
+                      <div className="flex justify-between items-start mb-6">
+                        <div>
+                          <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white">{tile.name}</h2>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{tile.type}</span>
+                            {tile.group && (
+                              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                                Sector: {tile.group}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => setShowPropertyModal(false)}
+                          className="p-2 hover:bg-zinc-800 rounded-full text-zinc-500 hover:text-white transition-colors"
+                        >
+                          <XCircle className="w-8 h-8" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-8">
+                        <div className="space-y-6">
+                          <div>
+                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Ownership Status</label>
+                            <div className="flex items-center gap-3">
+                              {owner ? (
+                                <>
+                                  <div className="w-10 h-10 rounded-lg border-2 border-white/20 flex items-center justify-center overflow-hidden" style={{ backgroundColor: owner.color }}>
+                                    <img src={owner.operator.portrait} alt={owner.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  </div>
+                                  <div>
+                                    <div className="font-bold text-white">{owner.name}</div>
+                                    <div className="text-[10px] text-zinc-500 uppercase">Current Proprietor</div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="flex items-center gap-3 text-zinc-600 italic">
+                                  <div className="w-10 h-10 rounded-lg border-2 border-zinc-800 flex items-center justify-center">
+                                    <Package className="w-5 h-5" />
+                                  </div>
+                                  <span>Unclaimed Asset</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Financial Status</label>
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center p-2 bg-zinc-800/50 rounded border border-zinc-800">
+                                <span className="text-xs text-zinc-400">Mortgaged</span>
+                                <span className={`text-xs font-bold uppercase ${tile.isMortgaged ? 'text-red-500' : 'text-green-500'}`}>
+                                  {tile.isMortgaged ? 'Yes' : 'No'}
+                                </span>
+                              </div>
+                              {tile.mortgage && (
+                                <div className="flex justify-between items-center p-2 bg-zinc-800/50 rounded border border-zinc-800">
+                                  <span className="text-xs text-zinc-400">Mortgage Value</span>
+                                  <span className="text-xs font-bold text-orange-400">{tile.mortgage} Orundum</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div>
+                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Rent Schedule</label>
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-xs py-1 border-b border-zinc-800">
+                                <span className="text-zinc-500">Base Rent</span>
+                                <span className="text-zinc-300">{tile.rent} Orundum</span>
+                              </div>
+                              {tile.type === 'PROPERTY' && (
+                                <>
+                                  <div className={`flex justify-between text-xs py-1 ${tile.dorms === 1 ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                                    <span>1 Dorm</span>
+                                    <span>{tile.dorm1}</span>
+                                  </div>
+                                  <div className={`flex justify-between text-xs py-1 ${tile.dorms === 2 ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                                    <span>2 Dorms</span>
+                                    <span>{tile.dorm2}</span>
+                                  </div>
+                                  <div className={`flex justify-between text-xs py-1 ${tile.dorms === 3 ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                                    <span>3 Dorms</span>
+                                    <span>{tile.dorm3}</span>
+                                  </div>
+                                  <div className={`flex justify-between text-xs py-1 ${tile.dorms === 4 ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                                    <span>4 Dorms</span>
+                                    <span>{tile.dorm4}</span>
+                                  </div>
+                                  <div className={`flex justify-between text-xs py-1 ${tile.dorms === 5 ? 'text-orange-400 font-bold' : 'text-zinc-500'}`}>
+                                    <span>Cmd Center</span>
+                                    <span>{tile.cmdCtr}</span>
+                                  </div>
+                                </>
+                              )}
+                              <div className="flex justify-between items-center mt-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                                <div className="text-[10px] font-black text-orange-500 uppercase leading-none">Current Rent</div>
+                                <div className="text-xl font-black italic text-orange-500">{currentRent}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Active Bonuses & Effects */}
+                      <div className="mt-8 pt-8 border-t border-zinc-800">
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-4">Active Intelligence & Bonuses</label>
+                        <div className="grid grid-cols-1 gap-3">
+                          {ownsAll && (
+                            <div className="flex items-center gap-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                              <TrendingUp className="w-5 h-5 text-green-500" />
+                              <div>
+                                <div className="text-xs font-bold text-green-500 uppercase">Sector Dominance</div>
+                                <div className="text-[10px] text-zinc-400">Full color set owned. 25% building discount applied.</div>
+                              </div>
+                            </div>
+                          )}
+                          {ownsAll && tile.dorms === 0 && (
+                            <div className="flex items-center gap-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                              <Zap className="w-5 h-5 text-blue-500" />
+                              <div>
+                                <div className="text-xs font-bold text-blue-500 uppercase">Strategic Monopoly</div>
+                                <div className="text-[10px] text-zinc-400">Unimproved rent is doubled.</div>
+                              </div>
+                            </div>
+                          )}
+                          {ownsAll && tile.dorms && tile.dorms > 0 && (
+                            <div className="flex items-center gap-3 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                              <TrendingUp className="w-5 h-5 text-orange-500" />
+                              <div>
+                                <div className="text-xs font-bold text-orange-500 uppercase">Improved Yield</div>
+                                <div className="text-[10px] text-zinc-400">25% rent bonus applied to improved properties.</div>
+                              </div>
+                            </div>
+                          )}
+                          {owner?.operator.name === 'Hoshiguma' && (
+                            <div className="flex items-center gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                              <Shield className="w-5 h-5 text-red-500" />
+                              <div>
+                                <div className="text-xs font-bold text-red-500 uppercase">Hoshiguma's Presence</div>
+                                <div className="text-[10px] text-zinc-400">10% defensive rent bonus applied.</div>
+                              </div>
+                            </div>
+                          )}
+                          {!ownsAll && !owner && (
+                            <div className="flex items-center gap-3 p-3 bg-zinc-800 rounded-lg border border-zinc-700 opacity-50">
+                              <Info className="w-5 h-5 text-zinc-500" />
+                              <div className="text-[10px] text-zinc-500 uppercase italic">No active tactical bonuses detected</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-8 flex gap-3">
+                        {tile.type === 'PROPERTY' && (
+                          <div className="flex-1 p-4 bg-zinc-800/50 rounded-xl border border-zinc-800">
+                            <div className="text-[10px] text-zinc-500 font-black uppercase mb-1">Build Cost</div>
+                            <div className="text-xl font-black italic text-white">{effectiveBuildCost} <span className="text-[10px] not-italic text-zinc-500">Orundum</span></div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Construction Management */}
+                      {tile.ownerId === localPlayer?.id && tile.type === 'PROPERTY' && (
+                        <div className="mt-8 p-6 bg-zinc-800/20 rounded-xl border border-zinc-800/50">
+                          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-4">Construction Management</label>
+                          
+                          {(() => {
+                            const groupTiles = tiles.filter(t => t.group === tile.group);
+                            const ownsAllInSector = groupTiles.every(gt => gt.ownerId === localPlayer?.id);
+                            const currentDorms = tile.dorms || 0;
+                            
+                            // Even building rule check
+                            const minDormsInSector = Math.min(...groupTiles.map(gt => gt.dorms || 0));
+                            const canBuildDorm = ownsAllInSector && currentDorms < 4 && (currentDorms === minDormsInSector);
+                            const canBuildCmdCenter = ownsAllInSector && currentDorms === 4 && (minDormsInSector === 4);
+                            
+                            return (
+                              <div className="space-y-4">
+                                {!ownsAllInSector && (
+                                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3">
+                                    <ShieldAlert className="w-4 h-4 text-red-500 mt-0.5" />
+                                    <div className="text-[10px] text-red-400 font-bold uppercase tracking-tight">
+                                      Sector Ownership Required: Control all {tile.group} sites to begin construction.
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {ownsAllInSector && currentDorms < 5 && !canBuildDorm && !canBuildCmdCenter && (
+                                  <div className="p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg flex items-start gap-3">
+                                    <Info className="w-4 h-4 text-orange-500 mt-0.5" />
+                                    <div className="text-[10px] text-orange-400 font-bold uppercase tracking-tight">
+                                      Even Building Rule: Develop other {tile.group} sites before upgrading this facility further.
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="flex gap-4">
+                                  {currentDorms < 5 && (
+                                    <button
+                                      onClick={() => buildDorm(tile.id)}
+                                      disabled={!isLocalTurn || !ownsAllInSector || (!canBuildDorm && !canBuildCmdCenter) || (localPlayer?.orundum || 0) < effectiveBuildCost || tile.isMortgaged}
+                                      className="flex-1 py-4 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 disabled:opacity-30 disabled:grayscale transition-all flex flex-col items-center justify-center p-2"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        {currentDorms < 4 ? <Plus className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                                        {currentDorms < 4 ? 'Construct Dormitory' : 'Establish Cmd Center'}
+                                      </div>
+                                      <span className="text-[8px] mt-1 opacity-70">Investment: {effectiveBuildCost} Orundum</span>
+                                    </button>
+                                  )}
+                                  
+                                  {currentDorms > 0 && (
+                                    <button
+                                      onClick={() => sellDorm(tile.id)}
+                                      disabled={!isLocalTurn}
+                                      className="flex-1 py-4 border-2 border-red-500/50 text-red-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500/10 disabled:opacity-30 transition-all flex flex-col items-center justify-center p-2"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <Minus className="w-4 h-4" />
+                                        Decommission
+                                      </div>
+                                      <span className="text-[8px] mt-1 opacity-70">Recovery: {Math.floor(effectiveBuildCost / 2)} Orundum</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                      <div className="mt-8 space-y-3">
+                        {tile.ownerId === localPlayer?.id && gameState.players[gameState.currentPlayerIndex].id === localPlayer?.id && (
+                          <div className="grid grid-cols-2 gap-3">
+                            {tile.dorms === 0 && (
+                              !tile.isMortgaged ? (
+                                <button 
+                                  onClick={() => mortgageProperty(tile.id)}
+                                  className="w-full py-3 bg-zinc-800 text-zinc-400 border border-zinc-700 font-black uppercase text-xs rounded-sm hover:bg-zinc-700 transition-all font-mono"
+                                >
+                                  Tactical Mortgage
+                                </button>
+                              ) : (
+                                <button 
+                                  onClick={() => unmortgageProperty(tile.id)}
+                                  className="w-full py-3 bg-green-900/40 text-green-400 border border-green-900/50 font-black uppercase text-xs rounded-sm hover:bg-green-900/60 transition-all font-mono"
+                                >
+                                  Redeem operations
+                                </button>
+                              )
+                            )}
+                          </div>
+                        )}
+                        <button 
+                          onClick={() => setShowPropertyModal(false)}
+                          className="w-full py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all font-mono"
+                        >
+                          Close Intel
+                        </button>
+                      </div>
+                      </div>
+                  </>
+                );
+              })()}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Trade Modal */}
+      <AnimatePresence>
+        {gameState.activeTrade && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-zinc-900 border border-zinc-800 p-10 rounded-2xl max-w-3xl w-full shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setGameState(prev => ({ ...prev, activeTrade: null }))}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-white"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+
+              <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-2 flex items-center gap-3">
+                <ArrowLeftRight className="text-orange-500" /> Negotiate Trade
+              </h2>
+              <div className="mb-6 flex items-center gap-2">
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest ${
+                  gameState.activeTrade.status === 'PROPOSED' ? 'bg-blue-500/20 text-blue-500' :
+                  gameState.activeTrade.status === 'COUNTERED' ? 'bg-orange-500/20 text-orange-500' :
+                  'bg-zinc-800 text-zinc-500'
+                }`}>
+                  {gameState.activeTrade.status}
+                </span>
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                  Waiting for: {gameState.players.find(p => p.id === gameState.activeTrade.waitingForId)?.name}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 overflow-y-auto max-h-[60vh] md:max-h-none pr-2">
+                {/* Proposer Side */}
+                <div className={`flex flex-col gap-4 p-4 rounded-xl border transition-all ${gameState.activeTrade.waitingForId === gameState.activeTrade.proposerId ? 'border-orange-500/50 bg-orange-500/5' : 'border-zinc-800 bg-zinc-800/20 opacity-60'}`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="relative">
+                      <div className="w-10 h-10 rounded-full border-2 border-zinc-800 overflow-hidden bg-zinc-900">
+                        <img 
+                          src={gameState.players.find(p => p.id === gameState.activeTrade?.proposerId)?.avatar?.url} 
+                          alt="Proposer" 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-zinc-900" style={{ backgroundColor: gameState.players.find(p => p.id === gameState.activeTrade?.proposerId)?.color }} />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-black text-sm italic uppercase tracking-tighter leading-none">
+                        {gameState.players.find(p => p.id === gameState.activeTrade?.proposerId)?.name}
+                      </div>
+                      <div className="text-[8px] text-zinc-500 font-mono uppercase">
+                        {gameState.players.find(p => p.id === gameState.activeTrade?.proposerId)?.operator?.title}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase mb-2 block">Orundum Offered</label>
+                    <input 
+                      type="number"
+                      disabled={gameState.activeTrade.waitingForId !== localPlayer?.id}
+                      value={gameState.activeTrade.proposerOrundum}
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                        const player = gameState.players.find(p => p.id === gameState.activeTrade?.proposerId);
+                        updateTrade({ proposerOrundum: player ? Math.min(val, player.orundum) : val });
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-sm font-mono text-orange-400 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800 flex-1">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase mb-2 block">Properties Offered</label>
+                    <div className="flex flex-wrap gap-1">
+                      {(gameState.players.find(p => p.id === gameState.activeTrade?.proposerId)?.properties || []).map(id => {
+                        const tile = tiles[id];
+                        const isSelected = gameState.activeTrade?.proposerProperties.includes(id);
+                        const canTrade = canTradeProperty(id);
+                        return (
+                          <button
+                            key={id}
+                            disabled={gameState.activeTrade.waitingForId !== localPlayer?.id || !canTrade}
+                            onClick={() => {
+                              const current = gameState.activeTrade?.proposerProperties || [];
+                              updateTrade({ proposerProperties: isSelected ? current.filter(pid => pid !== id) : [...current, id] });
+                            }}
+                            className={`px-2 py-1 text-[9px] font-bold rounded border transition-all ${isSelected ? 'bg-orange-500 text-black border-orange-500' : 'bg-zinc-900 text-zinc-400 border-zinc-700'} ${!canTrade ? 'opacity-30 cursor-not-allowed' : 'hover:border-orange-500/50'} disabled:opacity-50`}
+                            title={!canTrade ? "Cannot trade properties with buildings" : ""}
+                          >
+                            {tile.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Receiver Side */}
+                <div className={`flex flex-col gap-4 p-4 rounded-xl border transition-all ${gameState.activeTrade.waitingForId === gameState.activeTrade.receiverId ? 'border-orange-500/50 bg-orange-500/5' : 'border-zinc-800 bg-zinc-800/20 opacity-60'}`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="relative">
+                      <div className="w-10 h-10 rounded-full border-2 border-zinc-800 overflow-hidden bg-zinc-900">
+                        <img 
+                          src={gameState.players.find(p => p.id === gameState.activeTrade?.receiverId)?.avatar?.url} 
+                          alt="Receiver" 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-zinc-900" style={{ backgroundColor: gameState.players.find(p => p.id === gameState.activeTrade?.receiverId)?.color }} />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-black text-sm italic uppercase tracking-tighter leading-none">
+                        {gameState.players.find(p => p.id === gameState.activeTrade?.receiverId)?.name}
+                      </div>
+                      <div className="text-[8px] text-zinc-500 font-mono uppercase">
+                        {gameState.players.find(p => p.id === gameState.activeTrade?.receiverId)?.operator?.title}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase mb-2 block">Orundum Requested</label>
+                    <input 
+                      type="number"
+                      disabled={gameState.activeTrade.waitingForId !== localPlayer?.id}
+                      value={gameState.activeTrade.receiverOrundum}
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                        const player = gameState.players.find(p => p.id === gameState.activeTrade?.receiverId);
+                        updateTrade({ receiverOrundum: player ? Math.min(val, player.orundum) : val });
+                      }}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-sm font-mono text-orange-400 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800 flex-1">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase mb-2 block">Properties Requested</label>
+                    <div className="flex flex-wrap gap-1">
+                      {(gameState.players.find(p => p.id === gameState.activeTrade?.receiverId)?.properties || []).map(id => {
+                        const tile = tiles[id];
+                        const isSelected = gameState.activeTrade?.receiverProperties.includes(id);
+                        const canTrade = canTradeProperty(id);
+                        return (
+                          <button
+                            key={id}
+                            disabled={gameState.activeTrade.waitingForId !== localPlayer?.id || !canTrade}
+                            onClick={() => {
+                              const current = gameState.activeTrade?.receiverProperties || [];
+                              updateTrade({ receiverProperties: isSelected ? current.filter(pid => pid !== id) : [...current, id] });
+                            }}
+                            className={`px-2 py-1 text-[9px] font-bold rounded border transition-all ${isSelected ? 'bg-orange-500 text-black border-orange-500' : 'bg-zinc-900 text-zinc-400 border-zinc-700'} ${!canTrade ? 'opacity-30 cursor-not-allowed' : 'hover:border-orange-500/50'} disabled:opacity-50`}
+                            title={!canTrade ? "Cannot trade properties with buildings" : ""}
+                          >
+                            {tile.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Trade Value Analysis */}
+              <div className="mt-6 p-4 bg-zinc-800/30 rounded-xl border border-zinc-800/50 grid grid-cols-3 gap-4">
+                {(() => {
+                  const trade = gameState.activeTrade;
+                  if (!trade) return null;
+                  const isProposer = localPlayer?.id === trade.proposerId;
+                  
+                  const myGivingOrundum = isProposer ? trade.proposerOrundum : trade.receiverOrundum;
+                  const myGettingOrundum = isProposer ? trade.receiverOrundum : trade.proposerOrundum;
+                  
+                  const myGivingProps = isProposer ? trade.proposerProperties : trade.receiverProperties;
+                  const myGettingProps = isProposer ? trade.receiverProperties : trade.proposerProperties;
+                  
+                  const myGivingValue = myGivingOrundum + myGivingProps.reduce((sum, id) => sum + (tiles[id].cost || 0), 0);
+                  const myGettingValue = myGettingOrundum + myGettingProps.reduce((sum, id) => sum + (tiles[id].cost || 0), 0);
+                  const netValue = myGettingValue - myGivingValue;
+
+                  return (
+                    <>
+                      <div className="text-center">
+                        <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">You Give</div>
+                        <div className="text-sm font-mono text-red-400">-{myGivingValue}</div>
+                      </div>
+                      <div className="text-center border-x border-zinc-800">
+                        <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">You Get</div>
+                        <div className="text-sm font-mono text-green-400">+{myGettingValue}</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">Net Value</div>
+                        <div className={`text-sm font-mono font-bold ${netValue >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          {netValue >= 0 ? '+' : ''}{netValue}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                {gameState.activeTrade.waitingForId === (localPlayer?.id) ? (
+                  <>
+                    {(gameState.activeTrade.status === 'COUNTERED' || (gameState.activeTrade.status === 'PROPOSED' && gameState.activeTrade.waitingForId === gameState.activeTrade.receiverId)) && (
+                      <button
+                        onClick={acceptTrade}
+                        className="flex-1 py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> Accept Offer
+                      </button>
+                    )}
+                    <button
+                      onClick={proposeTrade}
+                      className="flex-1 py-3 border-2 border-orange-500 text-orange-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-500/10 transition-all flex items-center justify-center gap-2"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" /> {gameState.activeTrade.status === 'PROPOSED' && gameState.activeTrade.waitingForId === gameState.activeTrade.proposerId ? 'Propose Trade' : 'Counter Offer'}
+                    </button>
+                    <button
+                      onClick={rejectTrade}
+                      className="flex-1 py-3 border-2 border-red-500/50 text-red-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500/10 transition-all flex items-center justify-center gap-2"
+                    >
+                      <XCircle className="w-4 h-4" /> {gameState.activeTrade.status === 'PROPOSED' && gameState.activeTrade.waitingForId === gameState.activeTrade.proposerId ? 'Cancel' : 'Reject'}
+                    </button>
+                  </>
+                ) : (
+                  <div className="w-full py-4 bg-zinc-800/50 border border-zinc-800 rounded-lg text-center text-zinc-500 text-xs font-bold uppercase tracking-widest animate-pulse">
+                    Waiting for {gameState.players.find(p => p.id === gameState.activeTrade.waitingForId)?.name} to respond...
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Event Card Reveal Modal */}
+      <AnimatePresence>
+        {gameState.activeCard && localPlayer?.id === currentPlayer?.id && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.8, y: 50, rotateY: 90 }}
+              animate={{ scale: 1, y: 0, rotateY: 0 }}
+              exit={{ scale: 0.8, opacity: 0, transition: { duration: 0.2 } }}
+              transition={{ type: "spring", damping: 15, stiffness: 100 }}
+              className="relative w-full max-w-[320px] aspect-[2/3.5] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+            >
+              {/* Card Image */}
+              <div className="relative flex-1 bg-zinc-950 overflow-hidden">
+                <img 
+                  src={gameState.activeCard.image} 
+                  alt={gameState.activeCard.title} 
+                  className="w-full h-full object-cover opacity-90"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent" />
+                
+                {/* Tactical Header Overlay */}
+                <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
+                  <div className="px-2 py-1 bg-orange-500 text-black text-[8px] font-black uppercase tracking-widest rounded-sm">
+                    {gameState.tiles[currentPlayer?.position || 0].name}
+                  </div>
+                  <div className="w-8 h-8 rounded-full border border-white/20 bg-black/50 backdrop-blur-md flex items-center justify-center">
+                    <Info className="w-4 h-4 text-white" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Card Details */}
+              <div className="p-6 pt-2 bg-zinc-900 flex flex-col gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black italic uppercase tracking-tighter text-orange-500 leading-none">
+                    {gameState.activeCard.title}
+                  </h3>
+                  <div className="h-0.5 w-12 bg-orange-500" />
+                </div>
+
+                <div className="text-[10px] text-zinc-400 italic leading-relaxed font-medium">
+                  {gameState.activeCard.flavor}
+                </div>
+
+                <div className="p-3 bg-white/5 border border-white/10 rounded-lg">
+                  <div className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-1">Tactical Effect</div>
+                  <div className="text-[11px] font-bold text-white leading-tight">
+                    {gameState.activeCard.effect}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleApplyCardEffect}
+                  disabled={currentPlayer?.isAI}
+                  className="w-full py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 active:scale-95 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.3)] flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {currentPlayer?.isAI ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4" />
+                      Acknowledge
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              {/* Scanline decoration */}
+              <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Winner Overlay */}
+      <AnimatePresence>
+        {gameState.winner && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center"
+          >
+            <motion.div
+              initial={{ scale: 0.5, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="max-w-lg"
+            >
+              <div className="relative mb-8">
+                <Trophy className="w-40 h-40 text-orange-500 mx-auto drop-shadow-[0_0_20px_rgba(249,115,22,0.4)]" />
+                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-20 h-20 rounded-2xl border-4 border-zinc-900 overflow-hidden shadow-2xl">
+                  <img 
+                    src={gameState.players.find(p => p.id === gameState.winner)?.avatar?.url} 
+                    alt="Winner Avatar" 
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              </div>
+              <h2 className="text-6xl font-black italic uppercase tracking-tighter text-white mb-4">Mission Complete</h2>
+              <p className="text-3xl text-orange-500 font-bold uppercase mb-12">
+                {gameState.players.find(p => p.id === gameState.winner)?.name} is the last operator standing
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-12 py-4 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all"
+              >
+                Restart Operation
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showMobileReport && (
+          <motion.div 
+            initial={{ opacity: 0, x: 100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed right-20 top-10 bottom-10 w-80 z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                <TrendingUp className="w-3 h-3" /> Intelligence Report
+              </div>
+              <button 
+                className="text-zinc-500 hover:text-white transition-colors" 
+                onClick={() => setShowMobileReport(false)}
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            {gameState.selectedTileId !== null ? (
+              <div className="flex flex-col gap-4 overflow-y-auto no-scrollbar flex-1">
+                <div className="p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
+                  <div className="h-2 w-full mb-4 rounded-full" style={{ backgroundColor: tiles[gameState.selectedTileId].color || '#333' }} />
+                  <h3 className="text-xl font-black italic uppercase tracking-tight mb-1">{tiles[gameState.selectedTileId].name}</h3>
+                  <p className="text-[10px] text-zinc-500 font-bold uppercase mb-4">{tiles[gameState.selectedTileId].name} Intelligence Report</p>
+              
+                  {['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[gameState.selectedTileId].type) && (
+                    <button 
+                      onClick={() => setShowPropertyModal(true)}
+                      className="w-full mb-4 py-2 bg-zinc-800 border border-zinc-700 text-zinc-300 text-[10px] font-black uppercase rounded-sm hover:bg-zinc-700 flex items-center justify-center gap-2"
+                    >
+                      <Search className="w-3 h-3" /> Dossier
+                    </button>
+                  )}
+
+              {['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[gameState.selectedTileId].type) && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between text-xs landscape:text-[8px]">
+                    <span className="text-zinc-400 uppercase">Cost</span>
+                    <span className="text-orange-400 font-mono">{tiles[gameState.selectedTileId].cost}</span>
+                  </div>
+                  <div className="flex justify-between text-xs landscape:text-[8px]">
+                    <span className="text-zinc-400 uppercase">Rent</span>
+                    <span className="text-orange-400 font-mono">
+                      {tiles[gameState.selectedTileId].isMortgaged ? 'MORT' : 
+                       tiles[gameState.selectedTileId].type === 'TRANSPORT' ? 
+                       `${[25, 50, 100, 200][(tiles.filter(t => t.type === 'TRANSPORT' && t.ownerId === tiles[gameState.selectedTileId].ownerId).length || 1) - 1]}` :
+                       tiles[gameState.selectedTileId].type === 'UTILITY' ?
+                       `${tiles.filter(t => t.type === 'UTILITY' && t.ownerId === tiles[gameState.selectedTileId].ownerId).length === 2 ? '10x' : '4x'}` :
+                       `${(() => {
+                         const t = tiles[gameState.selectedTileId];
+                         const d = t.dorms || 0;
+                         if (d === 0) return t.rent;
+                         if (d === 1) return t.dorm1;
+                         if (d === 2) return t.dorm2;
+                         if (d === 3) return t.dorm3;
+                         if (d === 4) return t.dorm4;
+                         if (d === 5) return t.cmdCtr;
+                         return t.rent;
+                       })()}`}
+                    </span>
+                  </div>
+                  
+                  {tiles[gameState.selectedTileId].type === 'PROPERTY' && (
+                    <div className="mt-4 flex flex-col gap-1 border-t border-zinc-700 pt-4">
+                      <div className="flex justify-between text-[10px] landscape:text-[7px]">
+                        <span className="text-zinc-500 uppercase">1 Dorm</span>
+                        <span className="text-zinc-300">{tiles[gameState.selectedTileId].dorm1}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] landscape:text-[7px]">
+                        <span className="text-zinc-500 uppercase">2 Dorms</span>
+                        <span className="text-zinc-300">{tiles[gameState.selectedTileId].dorm2}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] landscape:text-[7px]">
+                        <span className="text-zinc-500 uppercase">3 Dorms</span>
+                        <span className="text-zinc-300">{tiles[gameState.selectedTileId].dorm3}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] landscape:text-[7px]">
+                        <span className="text-zinc-500 uppercase">4 Dorms</span>
+                        <span className="text-zinc-300">{tiles[gameState.selectedTileId].dorm4}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] landscape:text-[7px]">
+                        <span className="text-zinc-500 uppercase">Cmd Ctr</span>
+                        <span className="text-zinc-300">{tiles[gameState.selectedTileId].cmdCtr}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] mt-2">
+                        <span className="text-zinc-500 uppercase">Build Cost</span>
+                        <span className="text-orange-400">
+                          {(() => {
+                            const tile = tiles[gameState.selectedTileId];
+                            const groupTiles = tiles.filter(t => t.group === tile.group);
+                            const ownsAll = tile.ownerId && groupTiles.every(t => t.ownerId === tile.ownerId);
+                            const cost = ownsAll ? Math.floor((tile.buildCost || 0) * 0.75) : (tile.buildCost || 0);
+                            return `${cost} Orundum`;
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 pt-4 border-t border-zinc-700">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-zinc-400 uppercase">Current Owner</span>
+                      <span className="font-bold">
+                        {tiles[gameState.selectedTileId].ownerId 
+                          ? gameState.players.find(p => p.id === tiles[gameState.selectedTileId].ownerId)?.name 
+                          : 'UNCLAIMED'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {tiles[gameState.selectedTileId].ownerId === currentPlayer?.id && (
+                    <div className="mt-6 flex flex-col gap-2">
+                      {(() => {
+                        const tile = tiles[gameState.selectedTileId];
+                        const groupTiles = tiles.filter(t => t.group === tile.group);
+                        const ownsAll = groupTiles.every(t => t.ownerId === currentPlayer?.id);
+                        const effectiveBuildCost = ownsAll ? Math.floor((tile.buildCost || 0) * 0.75) : (tile.buildCost || 0);
+                        const effectiveSellPrice = Math.floor(effectiveBuildCost / 2);
+
+                        return (
+                          <div className="flex gap-2">
+                            {tile.type === 'PROPERTY' && (tile.dorms || 0) < 5 && (
+                              <button
+                                onClick={() => buildDorm(tile.id)}
+                                disabled={!isLocalTurn || (currentPlayer?.orundum || 0) < effectiveBuildCost || tile.isMortgaged}
+                                className="flex-1 py-2 bg-orange-500 text-black text-[10px] font-black uppercase rounded-sm hover:bg-orange-400 disabled:opacity-50 flex items-center justify-center gap-1"
+                              >
+                                <Plus className="w-3 h-3" /> Build ({effectiveBuildCost})
+                              </button>
+                            )}
+                            {tile.type === 'PROPERTY' && (tile.dorms || 0) > 0 && (
+                              <button
+                                onClick={() => sellDorm(tile.id)}
+                                disabled={!isLocalTurn}
+                                className="flex-1 py-2 border border-red-500 text-red-500 text-[10px] font-black uppercase rounded-sm hover:bg-red-500/10 flex items-center justify-center gap-1 disabled:opacity-30"
+                              >
+                                <Minus className="w-3 h-3" /> Sell ({effectiveSellPrice})
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <button
+                        onClick={() => mortgageProperty(tiles[gameState.selectedTileId].id)}
+                        disabled={!isLocalTurn}
+                        className={`w-full py-2 border text-[10px] font-black uppercase rounded-sm flex items-center justify-center gap-1 disabled:opacity-30 ${tiles[gameState.selectedTileId].isMortgaged ? 'border-green-500 text-green-500 hover:bg-green-500/10' : 'border-zinc-700 text-zinc-400 hover:bg-zinc-800'}`}
+                      >
+                        <Shield className="w-3 h-3" /> {tiles[gameState.selectedTileId].isMortgaged ? `Unmortgage (${Math.ceil((tiles[gameState.selectedTileId].mortgage || 0) * 1.1)})` : `Mortgage (${tiles[gameState.selectedTileId].mortgage})`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-4">
+                  <div className="w-16 h-16 rounded-full border-2 border-dashed border-zinc-800 flex items-center justify-center">
+                    <ShieldAlert className="w-8 h-8 opacity-20" />
+                  </div>
+                  <p className="text-xs font-black uppercase tracking-widest italic text-center">Select a sector for<br/>intelligence analysis</p>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+      {/* Global Modals */}
+      <AnimatePresence>
+        {showProfile && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              key="profile"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
+                <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+                  <User className="text-orange-500" /> Profile
+                </h2>
+                <button onClick={() => setShowProfile(false)} className="text-zinc-500 hover:text-white"><XCircle /></button>
+              </div>
+              <div className="flex flex-col gap-6">
+                <div className="flex items-center gap-6">
+                  <div className="w-24 h-24 rounded-xl bg-orange-500/10 border-2 border-orange-500 flex items-center justify-center">
+                    <User className="w-12 h-12 text-orange-500" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Codename</label>
+                    <input 
+                      type="text" 
+                      value={profile.name}
+                      onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                      className="w-full bg-transparent border-none outline-none text-2xl font-black italic uppercase tracking-tighter text-white"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>
+                    <div className="text-2xl font-black italic">{profile.matches}</div>
+                  </div>
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[10px] text-zinc-500 font-black uppercase text-orange-500">Wins</div>
+                    <div className="text-2xl font-black italic text-orange-500">{profile.wins}</div>
+                  </div>
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[10px] text-zinc-500 font-black uppercase text-red-500">Losses</div>
+                    <div className="text-2xl font-black italic text-red-500">{profile.losses}</div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+
+
+        {showGameOver && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              key="game-over"
+              initial={{ opacity: 0, scale: 0.8, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 20 }}
+              className="w-full max-w-2xl bg-zinc-900 border-2 border-orange-500/50 p-8 rounded-3xl shadow-[0_0_50px_rgba(255,140,0,0.2)] overflow-hidden relative"
+            >
+              {/* Background Accents */}
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent" />
+              <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent" />
+              <div className="absolute -right-20 -top-20 w-64 h-64 bg-orange-500/5 rounded-full blur-3xl" />
+              <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-orange-500/5 rounded-full blur-3xl" />
+
+              <div className="text-center mb-10">
+                <motion.div
+                  initial={{ rotate: -10, scale: 0 }}
+                  animate={{ rotate: 0, scale: 1 }}
+                  transition={{ type: "spring", damping: 10, stiffness: 100, delay: 0.2 }}
+                  className="inline-block mb-4"
+                >
+                  <Trophy className="w-20 h-20 text-orange-500 mx-auto drop-shadow-[0_0_15px_rgba(255,140,0,0.5)]" />
+                </motion.div>
+                <h2 className="text-5xl font-black italic uppercase tracking-tighter text-white mb-2">Mission Complete</h2>
+                <p className="text-zinc-500 font-black uppercase tracking-widest text-xs">Final Operation Report</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+                {/* Winner Section */}
+                <div className="bg-zinc-800/30 border border-zinc-800 p-6 rounded-2xl flex flex-col items-center justify-center text-center">
+                  <div className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-4">Top Operator</div>
+                  {gameState.players.find(p => p.id === gameState.winner) && (
+                    <>
+                      <div className="flex gap-4 mb-4">
+                        <div className="w-24 h-24 md:w-32 md:h-32 rounded-2xl bg-zinc-800 border-2 border-zinc-700 p-2 relative overflow-hidden">
+                          <img 
+                            src={gameState.players.find(p => p.id === gameState.winner)?.avatar?.url} 
+                            alt="Winner Avatar" 
+                            className="w-full h-full object-cover rounded-xl"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="w-24 h-24 md:w-32 md:h-32 rounded-2xl bg-orange-500/10 border-2 border-orange-500 p-2 relative overflow-hidden">
+                          <img 
+                            src={gameState.players.find(p => p.id === gameState.winner)?.operator?.portrait} 
+                            alt="Winner Operator" 
+                            className="w-full h-full object-cover rounded-xl"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute -bottom-3 -right-3 bg-orange-500 text-black p-2 rounded-lg shadow-lg">
+                            <Trophy className="w-5 h-5" />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-3xl font-black italic uppercase tracking-tighter text-white">
+                        {gameState.players.find(p => p.id === gameState.winner)?.name}
+                      </div>
+                      <div className="text-orange-500 font-black uppercase tracking-widest text-[10px] mt-1">
+                        {gameState.players.find(p => p.id === gameState.winner)?.operator?.title}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Stats List */}
+                <div className="flex flex-col gap-3">
+                  <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Rankings</div>
+                  {[...gameState.players]
+                    .sort((a, b) => calculateTotalAssets(b) - calculateTotalAssets(a))
+                    .map((player, idx) => (
+                      <div 
+                        key={player.id} 
+                        className={`flex items-center gap-4 p-3 rounded-xl border transition-all ${player.id === gameState.winner ? 'bg-orange-500/10 border-orange-500/30' : 'bg-zinc-800/50 border-zinc-800'}`}
+                      >
+                        <div className="flex gap-2">
+                          <div className="w-8 h-8 rounded-lg border border-zinc-700 overflow-hidden bg-zinc-800">
+                            <img src={player.avatar.url} alt={player.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </div>
+                          <div className="w-8 h-8 rounded-lg border border-zinc-700 overflow-hidden bg-zinc-800">
+                            <img src={player.operator.portrait} alt={player.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-black uppercase italic tracking-tight text-white flex items-center gap-2">
+                            {player.name}
+                            {player.isBankrupt && <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded">KIA</span>}
+                          </div>
+                          <div className="text-[10px] font-mono text-zinc-500">
+                            {calculateTotalAssets(player).toLocaleString()} ORUNDUM
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Properties</div>
+                          <div className="text-xs font-black italic text-zinc-300">{player.properties.length}</div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4">
+                <button 
+                  onClick={resetGame}
+                  className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-black font-black uppercase italic tracking-widest rounded-xl transition-all shadow-[0_4px_0_rgb(194,107,0)] active:translate-y-1 active:shadow-none flex items-center justify-center gap-3"
+                >
+                  <Play className="w-5 h-5 fill-current" /> Return to Base
+                </button>
+                <button 
+                  onClick={() => setShowProfile(true)}
+                  className="px-8 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3"
+                >
+                  <User className="w-5 h-5" /> View Profile
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {isQueuing && <SearchingOverlay />}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+export default App;

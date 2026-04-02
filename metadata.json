@@ -1,0 +1,5 @@
+{
+  "name": "Arknights Monopoly",
+  "description": "A tactical Monopoly-style game set in the Arknights universe. Manage resources, acquire sectors, and outlast other operators.",
+  "requestFramePermissions": []
+}
