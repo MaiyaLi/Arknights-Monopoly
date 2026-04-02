@@ -76,7 +76,6 @@ async function startServer() {
       console.log(`Cloud Database loaded: ${users.size} Doctors identified.`);
     } catch (e) {
       console.error('Failed to load cloud database:', e);
-      // Fallback to local if exists (for migration)
       const DB_PATH = path.join(process.cwd(), 'database.json');
       if (fs.existsSync(DB_PATH)) {
         const data = fs.readFileSync(DB_PATH, 'utf-8');
@@ -84,7 +83,6 @@ async function startServer() {
         Object.entries(parsed).forEach(([email, userData]: [string, any]) => {
           users.set(email, { ...userData, socketId: '' });
         });
-        console.log(`Local fallback loaded: ${users.size} Doctors identified.`);
       }
     }
   }
@@ -101,10 +99,7 @@ async function startServer() {
 
   await loadUsers();
 
-  // Map socket IDs to emails for easy lookup on disconnect
   const socketToEmail = new Map<string, string>();
-
-  // Store room data
   const rooms = new Map<string, {
     players: any[];
     expectedPlayerCount?: number;
@@ -119,14 +114,14 @@ async function startServer() {
     hostEmail?: string;
   }>();
 
-  // Track which room each socket is in
   const socketToRoom = new Map<string, string>();
-
   const queue: string[] = [];
   let matchmakingTimer: NodeJS.Timeout | null = null;
-  let matchmakingCountdown = 20;
+  let matchmakingCountdown = 10;
 
-  const TURN_TIME_LIMIT = 45; // 45 seconds per turn
+  const TURN_TIME_LIMIT = 45;
+
+  // --- Helper Functions ---
 
   function broadcastQueueUpdate() {
     queue.forEach((socketId, index) => {
@@ -141,19 +136,14 @@ async function startServer() {
   function startTurnTimer(roomId: string, nextIndex?: number) {
     const room = rooms.get(roomId);
     if (!room) return;
- 
-    if (room.turnTimer) {
-      clearInterval(room.turnTimer);
-    }
- 
-    // Mostima Skill: Opponents' turn timers are reduced by 5 seconds
+    if (room.turnTimer) clearInterval(room.turnTimer);
+
     let timeLimit = TURN_TIME_LIMIT;
     if (room.gameState) {
       const currentPlayerIdx = nextIndex !== undefined ? nextIndex : room.gameState.currentPlayerIndex;
       const currentPlayer = room.gameState.players[currentPlayerIdx];
       const otherPlayers = room.gameState.players.filter((p: any) => p.id !== currentPlayer.id);
-      const hasMostima = otherPlayers.some((p: any) => p.operator.name === 'Mostima');
-      if (hasMostima) {
+      if (otherPlayers.some((p: any) => p.operator.name === 'Mostima')) {
         timeLimit -= 5;
       }
     }
@@ -171,6 +161,51 @@ async function startServer() {
       }
     }, 1000);
   }
+
+  function startMatchmaking() {
+    // Only start if we have at least 2 real players
+    if (queue.length < 2) return;
+    
+    const playersToJoin = queue.splice(0, Math.min(queue.length, 4));
+    const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    
+    rooms.set(roomId, {
+      players: [],
+      expectedPlayerCount: playersToJoin.length,
+      gameState: null,
+      selectedOperators: [],
+      remainingTime: TURN_TIME_LIMIT,
+      chatMessages: [],
+      status: 'LOBBY',
+      hostId: playersToJoin[0]
+    });
+
+    playersToJoin.forEach((pid, idx) => {
+      const s = io.sockets.sockets.get(pid);
+      if (s) {
+        s.join(roomId);
+        socketToRoom.set(pid, roomId);
+        s.emit('joined-room', { 
+          roomId, 
+          status: 'LOBBY', 
+          isHost: idx === 0,
+          players: [],
+          selectedOperators: []
+        });
+        s.emit('chat-history', []);
+      }
+    });
+
+    if (matchmakingTimer) {
+      clearInterval(matchmakingTimer);
+      matchmakingTimer = null;
+    }
+    
+    console.log(`Matchmaking complete: Created room ${roomId} for ${playersToJoin.length} players.`);
+    broadcastQueueUpdate();
+  }
+
+  // --- Socket Logic ---
 
   io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -196,7 +231,7 @@ async function startServer() {
         players: [],
         selectedOperators: []
       });
-      console.log(`Room created: ${roomId} by ${socket.id}`);
+      console.log(`Manual room created: ${roomId} by ${socket.id}`);
     });
 
     socket.on('identify-user', async ({ email, name, avatarId }) => {
@@ -204,44 +239,21 @@ async function startServer() {
         socket.emit('error', 'Identification failed: Email and Name are required.');
         return;
       }
-
       let userData = users.get(email);
       if (userData) {
-        // If the email is already in use by ANOTHER active socket
         if (userData.socketId !== socket.id && io.sockets.sockets.get(userData.socketId)) {
           socket.emit('error', 'This email is already active in another session.');
           return;
         }
-        
-        // Update socket ID and existing fields
         userData.socketId = socket.id;
         userData.name = name;
         userData.avatarId = avatarId;
         socketToEmail.set(socket.id, email);
-        
         await saveUser(email, userData);
-        
-        socket.emit('identified', { 
-          email, 
-          name: userData.name, 
-          avatarId: userData.avatarId,
-          level: userData.level,
-          exp: userData.exp,
-          wins: userData.wins,
-          losses: userData.losses,
-          matches: userData.matches
-        });
+        socket.emit('identified', { email, ...userData });
       } else {
-        // Create new user
         const newUser: UserData = {
-          name,
-          avatarId,
-          level: 1,
-          exp: 0,
-          wins: 0,
-          losses: 0,
-          matches: 0,
-          socketId: socket.id
+          name, avatarId, level: 1, exp: 0, wins: 0, losses: 0, matches: 0, socketId: socket.id
         };
         users.set(email, newUser);
         socketToEmail.set(socket.id, email);
@@ -251,82 +263,6 @@ async function startServer() {
       console.log(`User identified: ${name} (${email})`);
     });
 
-    socket.on('queue-online', () => {
-      if (queue.includes(socket.id)) return;
-      
-      queue.push(socket.id);
-      console.log(`User ${socket.id} joined queue. Queue length: ${queue.length}`);
-      
-      broadcastQueueUpdate();
-
-      // Start countdown as soon as the first player joins
-      if (!matchmakingTimer) {
-        matchmakingCountdown = 10; // Faster 10-second countdown
-        matchmakingTimer = setInterval(() => {
-          matchmakingCountdown--;
-          
-          // Start the match if countdown finished OR we have 4 players
-          if (matchmakingCountdown <= 0 || queue.length >= 4) {
-            clearInterval(matchmakingTimer!);
-            matchmakingTimer = null;
-            
-            // Start the match with current queue (up to 4)
-            const matchedPlayers = queue.splice(0, 4);
-            const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-            
-            // Re-calculate expected count to include AI if solo
-            const actualPlayerCount = matchedPlayers.length;
-            const finalPlayerCount = actualPlayerCount === 1 ? 4 : actualPlayerCount; // Fill with AI up to 4 if solo
-
-            rooms.set(roomId, {
-              players: [],
-              expectedPlayerCount: finalPlayerCount,
-              gameState: null,
-              selectedOperators: [],
-              remainingTime: TURN_TIME_LIMIT,
-              chatMessages: [],
-              status: 'LOBBY',
-              hostId: matchedPlayers[0]
-            });
-
-            matchedPlayers.forEach((pId, idx) => {
-              const s = io.sockets.sockets.get(pId);
-              if (s) {
-                s.join(roomId);
-                socketToRoom.set(pId, roomId);
-                s.emit('joined-room', { 
-                  roomId, 
-                  status: 'LOBBY', 
-                  isHost: idx === 0,
-                  players: [],
-                  selectedOperators: [] 
-                });
-              }
-            });
-            
-            console.log(`Matchmaking complete: Room ${roomId} created for ${matchedPlayers.length} players.`);
-          }
-          
-          broadcastQueueUpdate();
-        }, 1000);
-      }
-    });
-
-    socket.on('leave-queue', () => {
-      const idx = queue.indexOf(socket.id);
-      if (idx !== -1) {
-        queue.splice(idx, 1);
-        console.log(`User ${socket.id} left queue. Queue length: ${queue.length}`);
-        
-        if (queue.length < 2 && matchmakingTimer) {
-          clearInterval(matchmakingTimer);
-          matchmakingTimer = null;
-        }
-        
-        broadcastQueueUpdate();
-      }
-    });
-
     socket.on('join-game', ({ roomId, playerName, playerEmail }) => {
       const room = rooms.get(roomId);
       if (room) {
@@ -334,14 +270,10 @@ async function startServer() {
           socket.emit('error', 'Room is full (max 4 players)');
           return;
         }
-
         socket.join(roomId);
         socketToRoom.set(socket.id, roomId);
-        
         const isRejoiningHost = room.hostEmail && room.hostEmail === playerEmail;
-        if (isRejoiningHost) {
-          room.hostId = socket.id;
-        }
+        if (isRejoiningHost) room.hostId = socket.id;
 
         socket.emit('joined-room', { 
           roomId, 
@@ -351,117 +283,45 @@ async function startServer() {
           selectedOperators: room.selectedOperators,
           gameState: room.gameState
         });
-
-        // Send existing chat messages to the new player
         socket.emit('chat-history', room.chatMessages);
-        
-        // Notify others in the room
         io.to(roomId).emit('player-joined', { 
           playerId: socket.id, 
           playerCount: room.players.length + (room.status === 'LOBBY' ? 1 : 0),
           status: room.status
         });
-        
-        console.log(`User ${socket.id} joined room ${roomId} (Status: ${room.status})`);
+        console.log(`User ${socket.id} joined room ${roomId}`);
       } else {
         socket.emit('error', 'Room not found. Please check the ID.');
       }
     });
 
-    const broadcastQueueUpdate = () => {
-      queue.forEach((pid, idx) => {
-        const s = io.sockets.sockets.get(pid);
-        if (s) {
-          s.emit('waiting-in-queue', { 
-            position: idx + 1, 
-            total: queue.length,
-            countdown: matchmakingTimer ? matchmakingCountdown : null
-          });
-        }
-      });
-    };
-
-    const startMatchmaking = () => {
-      if (queue.length < 2) {
-        if (matchmakingTimer) {
-          clearInterval(matchmakingTimer);
-          matchmakingTimer = null;
-        }
-        return;
-      }
-      
-      const playersToJoin = queue.splice(0, Math.min(queue.length, 4));
-      const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-      
-      rooms.set(roomId, {
-        players: [],
-        expectedPlayerCount: playersToJoin.length,
-        gameState: null,
-        selectedOperators: [],
-        remainingTime: TURN_TIME_LIMIT,
-        chatMessages: [],
-        status: 'LOBBY',
-        hostId: playersToJoin[0]
-      });
-
-      playersToJoin.forEach((pid, idx) => {
-        const s = io.sockets.sockets.get(pid);
-        if (s) {
-          s.join(roomId);
-          socketToRoom.set(pid, roomId);
-          s.emit('joined-room', { 
-            roomId, 
-            status: 'LOBBY', 
-            isHost: idx === 0,
-            gameMode: 'MULTIPLAYER'
-          });
-          s.emit('chat-history', []);
-        }
-      });
-
-      if (matchmakingTimer) {
-        clearInterval(matchmakingTimer);
-        matchmakingTimer = null;
-      }
-      
-      console.log(`Match deployed! Room ${roomId} created for ${playersToJoin.length} players.`);
-      broadcastQueueUpdate();
-    };
-
     socket.on('queue-online', () => {
-      const existingIdx = queue.indexOf(socket.id);
-      if (existingIdx !== -1) return; // Already in queue
-      
+      if (queue.includes(socket.id)) return;
       queue.push(socket.id);
-      console.log(`User ${socket.id} joined queue. Current line: ${queue.length}`);
+      console.log(`User ${socket.id} queued. Total: ${queue.length}`);
       
-      if (queue.length >= 4) {
-        startMatchmaking();
-      } else if (queue.length >= 2 && !matchmakingTimer) {
-        matchmakingCountdown = 20;
+      // Start countdown only if there are at least 2 humans
+      if (queue.length >= 2 && !matchmakingTimer) {
+        matchmakingCountdown = 10;
         matchmakingTimer = setInterval(() => {
           matchmakingCountdown--;
           broadcastQueueUpdate();
-          if (matchmakingCountdown <= 0) {
+          if (matchmakingCountdown <= 0 || queue.length >= 4) {
             startMatchmaking();
           }
         }, 1000);
       }
-      
       broadcastQueueUpdate();
     });
 
     socket.on('leave-queue', () => {
-      const qIdx = queue.indexOf(socket.id);
-      if (qIdx !== -1) {
-        queue.splice(qIdx, 1);
-        console.log(`User ${socket.id} left queue. Queue length: ${queue.length}`);
-        
+      const idx = queue.indexOf(socket.id);
+      if (idx !== -1) {
+        queue.splice(idx, 1);
         if (queue.length < 2 && matchmakingTimer) {
           clearInterval(matchmakingTimer);
           matchmakingTimer = null;
         }
-        
         broadcastQueueUpdate();
       }
     });
@@ -470,22 +330,16 @@ async function startServer() {
       const room = rooms.get(roomId);
       if (room) {
         const opName = typeof operator === 'string' ? operator : operator.name;
-        
-        // Check if operator is already taken by someone ELSE
-        const existingSelection = room.players.find(p => {
+        const alreadyTaken = room.players.find(p => {
           const pOpName = typeof p.operator === 'string' ? p.operator : p.operator.name;
           return pOpName === opName && p.id !== socket.id;
         });
-
-        if (existingSelection) {
+        if (alreadyTaken) {
           socket.emit('error', 'Operator already selected by another player');
           return;
         }
-
-        // Update or add player
         const playerIndex = room.players.findIndex(p => p.id === socket.id);
         if (playerIndex !== -1) {
-          // Remove old operator from selected list if changing
           const oldOp = typeof room.players[playerIndex].operator === 'string' 
             ? room.players[playerIndex].operator 
             : room.players[playerIndex].operator.name;
@@ -494,21 +348,13 @@ async function startServer() {
         } else {
           room.players.push({ ...player, id: socket.id });
         }
-
-        if (!room.selectedOperators.includes(opName)) {
-          room.selectedOperators.push(opName);
-        }
+        if (!room.selectedOperators.includes(opName)) room.selectedOperators.push(opName);
 
         io.to(roomId).emit('operator-selected', { 
-          operator: opName, 
-          playerId: socket.id,
-          players: room.players,
-          selectedOperators: room.selectedOperators
+          operator: opName, playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators
         });
 
-        // Auto-start if all expected players have picked
         if (room.status === 'LOBBY' && room.expectedPlayerCount && room.players.length === room.expectedPlayerCount) {
-          console.log(`Auto-starting match in room ${roomId} - All ${room.expectedPlayerCount} operators ready.`);
           room.status = 'IN_PROGRESS';
           io.to(roomId).emit('mission-start');
           startTurnTimer(roomId);
@@ -518,13 +364,9 @@ async function startServer() {
 
     socket.on('start-game', (roomId) => {
       const room = rooms.get(roomId);
-      if (room) {
-        if (room.hostId !== socket.id) {
-          socket.emit('error', 'Only the Sector Commander (Host) can initiate the mission.');
-          return;
-        }
-        if (room.players.length < 4) {
-          socket.emit('error', 'Incomplete squad. 4 operators required for this mission.');
+      if (room && room.hostId === socket.id) {
+        if (room.players.length < 2) { // Allow starting with at least 2 players
+          socket.emit('error', 'At least 2 operators required for this mission.');
           return;
         }
         room.status = 'IN_PROGRESS';
@@ -544,13 +386,8 @@ async function startServer() {
     socket.on('send-chat-message', ({ roomId, message }) => {
       const room = rooms.get(roomId);
       if (room) {
-        const chatMsg = {
-          ...message,
-          id: `msg_${Date.now()}_${socket.id}`,
-          timestamp: Date.now()
-        };
+        const chatMsg = { ...message, id: `msg_${Date.now()}_${socket.id}`, timestamp: Date.now() };
         room.chatMessages.push(chatMsg);
-        // Limit chat history
         if (room.chatMessages.length > 50) room.chatMessages.shift();
         io.to(roomId).emit('new-chat-message', chatMsg);
       }
@@ -560,7 +397,6 @@ async function startServer() {
       const room = rooms.get(roomId);
       if (room) {
         room.gameState = gameState;
-        // Broadcast to everyone EXCEPT the sender to avoid loops
         socket.to(roomId).emit('game-state-updated', gameState);
       }
     });
@@ -568,20 +404,15 @@ async function startServer() {
     socket.on('sync-player-id', ({ roomId, playerName, playerEmail }) => {
       const room = rooms.get(roomId);
       if (room) {
-        // Prioritize email if available, fallback to name only as a last resort
         const player = room.players.find(p => (playerEmail && p.email === playerEmail) || (!playerEmail && p.name === playerName));
         if (player) {
           const oldId = player.id;
           player.id = socket.id;
-          
-          // Update gameState if it exists
           if (room.gameState && room.gameState.players) {
             const gsPlayer = room.gameState.players.find((p: any) => (playerEmail && p.email === playerEmail) || (!playerEmail && p.name === playerName));
             if (gsPlayer) gsPlayer.id = socket.id;
           }
-
           io.to(roomId).emit('player-id-synced', { oldId, newId: socket.id, playerName: player.name });
-          console.log(`Player ${player.name} (${playerEmail || 'No Email'}) reclaimed by socket ${socket.id}`);
         }
       }
     });
@@ -596,60 +427,39 @@ async function startServer() {
           room.selectedOperators = room.selectedOperators.filter(o => o !== player.operator);
           room.players = room.players.filter(p => p.id !== socket.id);
         }
-
         if (room.players.length === 0) {
           if (room.turnTimer) clearInterval(room.turnTimer);
           rooms.delete(roomId);
         } else {
-          io.to(roomId).emit('player-left', { 
-            playerId: socket.id, 
-            players: room.players,
-            selectedOperators: room.selectedOperators
-          });
+          io.to(roomId).emit('player-left', { playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators });
         }
       }
-      console.log(`User ${socket.id} left room ${roomId}`);
     });
 
     socket.on('disconnect', () => {
-      console.log('User disconnected:', socket.id);
-      
-      // Remove from queue if present
       const qIdx = queue.indexOf(socket.id);
       if (qIdx !== -1) {
         queue.splice(qIdx, 1);
-        console.log(`User ${socket.id} (queued) disconnected. New queue length: ${queue.length}`);
-        
         if (queue.length < 2 && matchmakingTimer) {
           clearInterval(matchmakingTimer);
           matchmakingTimer = null;
         }
-        
         broadcastQueueUpdate();
       }
-
-      // Handle room cleanup
       const roomId = socketToRoom.get(socket.id);
       if (roomId) {
         const room = rooms.get(roomId);
         if (room) {
-          // Remove player from room
           const player = room.players.find(p => p.id === socket.id);
           if (player) {
             room.selectedOperators = room.selectedOperators.filter(o => o !== player.operator);
             room.players = room.players.filter(p => p.id !== socket.id);
           }
-
           if (room.players.length === 0) {
             if (room.turnTimer) clearInterval(room.turnTimer);
             rooms.delete(roomId);
-            console.log(`Room ${roomId} deleted (all players left)`);
           } else {
-            io.to(roomId).emit('player-left', { 
-              playerId: socket.id, 
-              players: room.players,
-              selectedOperators: room.selectedOperators
-            });
+            io.to(roomId).emit('player-left', { playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators });
           }
         }
         socketToRoom.delete(socket.id);
@@ -659,17 +469,12 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => { res.sendFile(path.join(distPath, 'index.html')); });
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
