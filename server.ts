@@ -205,30 +205,21 @@ async function startServer() {
     });
 
     // EMIT TO THE WHOLE ROOM ONCE EVERYONE IS ADDED
-    io.to(roomId).emit('joined-room', { 
-      roomId, 
-      status: 'LOBBY', 
-      isHost: false, // Each client will determine its own isHost in the frontend
-      players: newRoom.players,
-      selectedOperators: []
-    });
-
     playersToJoin.forEach((pid, idx) => {
       const s = io.sockets.sockets.get(pid);
       if (s) {
-        // The first player is technically the host for matchmaking rooms
-        if (idx === 0) {
-          s.emit('joined-room', { 
-            roomId, 
-            status: 'LOBBY', 
-            isHost: true,
-            players: newRoom.players,
-            selectedOperators: []
-          });
-        }
+        s.emit('joined-room', { 
+          roomId, 
+          status: 'LOBBY', 
+          isHost: idx === 0, // First player in queue is the host
+          players: newRoom.players,
+          selectedOperators: []
+        });
         s.emit('chat-history', []);
       }
     });
+
+    console.log(`Matchmaking room created: ${roomId} with ${playersToJoin.length} players`);
 
     if (matchmakingTimer) {
       clearInterval(matchmakingTimer);
@@ -266,7 +257,7 @@ async function startServer() {
         status: 'LOBBY',
         hostId: socket.id,
         hostName,
-        hostEmail
+        hostEmail // Store host email for re-connection
       });
 
       socket.emit('joined-room', { 
@@ -343,10 +334,13 @@ async function startServer() {
           gameState: room.gameState
         });
         socket.emit('chat-history', room.chatMessages);
+        
         io.to(roomId).emit('player-joined', { 
           playerId: socket.id, 
-          playerCount: room.players.length + (room.status === 'LOBBY' ? 1 : 0),
-          status: room.status
+          playerName,
+          playerCount: room.players.length,
+          status: room.status,
+          players: room.players // SYNC FULL LIST
         });
         console.log(`User ${socket.id} joined room ${roomId}`);
       } else {

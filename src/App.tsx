@@ -600,18 +600,10 @@ const App: React.FC = () => {
       }
     });
 
-    newSocket.on('player-joined', ({ playerId, playerCount, status }) => {
+    newSocket.on('player-joined', ({ playerId, playerName, playerCount, status }) => {
       addToLog(`A new Doctor has joined the mission (Total: ${playerCount}).`);
-      // Host should sync state to the new player IF we are in LOBBY (at start)
-      // If IN_PROGRESS, the server already sent the state in 'joined-room'
-      if (status === 'LOBBY') {
-        setGameState(prev => {
-          if (prev.isHost && prev.roomId) {
-            newSocket.emit('sync-game-state', { roomId: prev.roomId, gameState: prev });
-          }
-          return prev;
-        });
-      }
+      // We no longer manually emit sync-game-state here. 
+      // The server is the source of truth for the participant list in the lobby.
     });
 
     newSocket.on('player-left', ({ playerId, players, selectedOperators }) => {
@@ -989,8 +981,8 @@ const App: React.FC = () => {
   const localPlayer = useMemo(() => {
     if (!gameState.players || gameState.players.length === 0) return null;
     return gameState.players.find(p => 
-      p.id === socket?.id || 
       (p.email && profile.email && p.email === profile.email) ||
+      p.id === socket?.id || 
       (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'p0')
     );
   }, [gameState.players, socket?.id, profile.email, gameState.gameMode]);
@@ -998,7 +990,9 @@ const App: React.FC = () => {
   const isLocalTurn = useMemo(() => {
     if (!currentPlayer || !localPlayer) return false;
     // Strict comparison: unique ID, or unique email if IDs don't match (due to socket reconnect)
-    return currentPlayer.id === localPlayer.id || (currentPlayer.email && localPlayer.email && currentPlayer.email === localPlayer.email);
+    const isSameId = currentPlayer.id === localPlayer.id;
+    const isSameEmail = currentPlayer.email && localPlayer.email && currentPlayer.email === localPlayer.email;
+    return isSameId || isSameEmail;
   }, [currentPlayer, localPlayer]);
 
   const isAuctionTurn = gameState.activeAuction && (localPlayer?.id === gameState.activeAuction.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex] || (localPlayer?.email && gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex])?.email === localPlayer.email));
