@@ -259,12 +259,13 @@ async function startServer() {
       
       broadcastQueueUpdate();
 
-      // Start countdown if we have at least 2 players
-      if (queue.length >= 2 && !matchmakingTimer) {
-        matchmakingCountdown = 20;
+      // Start countdown as soon as the first player joins
+      if (!matchmakingTimer) {
+        matchmakingCountdown = 10; // Faster 10-second countdown
         matchmakingTimer = setInterval(() => {
           matchmakingCountdown--;
           
+          // Start the match if countdown finished OR we have 4 players
           if (matchmakingCountdown <= 0 || queue.length >= 4) {
             clearInterval(matchmakingTimer!);
             matchmakingTimer = null;
@@ -273,15 +274,19 @@ async function startServer() {
             const matchedPlayers = queue.splice(0, 4);
             const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             
+            // Re-calculate expected count to include AI if solo
+            const actualPlayerCount = matchedPlayers.length;
+            const finalPlayerCount = actualPlayerCount === 1 ? 4 : actualPlayerCount; // Fill with AI up to 4 if solo
+
             rooms.set(roomId, {
               players: [],
-              expectedPlayerCount: matchedPlayers.length,
+              expectedPlayerCount: finalPlayerCount,
               gameState: null,
               selectedOperators: [],
               remainingTime: TURN_TIME_LIMIT,
               chatMessages: [],
               status: 'LOBBY',
-              hostId: matchedPlayers[0] // First person in queue is the internal host
+              hostId: matchedPlayers[0]
             });
 
             matchedPlayers.forEach((pId, idx) => {

@@ -615,11 +615,12 @@ const App: React.FC = () => {
       addToLog(`A Doctor has disconnected from the mission.`);
     });
 
-    newSocket.on('waiting-in-queue', ({ position, total }) => {
+    newSocket.on('waiting-in-queue', ({ position, total, countdown }) => {
       setIsQueuing(true);
       setQueuePosition(position);
       setQueueTotal(total || position);
-      setGameState(prev => ({ ...prev, message: `Searching for other Doctors... (Position: ${position}/${total || position})` }));
+      const countdownMsg = countdown !== null ? ` (Starting in ${countdown}s)` : '';
+      setGameState(prev => ({ ...prev, message: `Searching for other Doctors... (Position: ${position}/${total || position})${countdownMsg}` }));
     });
 
     newSocket.on('operator-selected', ({ operator, playerId, players, selectedOperators }) => {
