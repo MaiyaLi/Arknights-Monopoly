@@ -253,7 +253,7 @@ async function startServer() {
   io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    socket.on('host-game', ({ roomId, hostName, hostEmail }) => {
+    socket.on('host-game', ({ roomId, hostName, hostEmail, avatarId }) => {
       socket.join(roomId);
       socketToRoom.set(socket.id, roomId);
       
@@ -261,6 +261,7 @@ async function startServer() {
         id: socket.id,
         name: hostName,
         email: hostEmail,
+        avatarId: avatarId || 'amiya',
         isHost: true,
         operator: null, // Host must still pick an operator
         status: 'WAITING'
@@ -317,7 +318,7 @@ async function startServer() {
       console.log(`User identified: ${name} (${email})`);
     });
 
-    socket.on('join-game', ({ roomId: rawRoomId, playerName, playerEmail }) => {
+    socket.on('join-game', ({ roomId: rawRoomId, playerName, playerEmail, avatarId }) => {
       const roomId = (rawRoomId || '').toString().trim().toUpperCase();
       const room = rooms.get(roomId);
       if (room) {
@@ -333,10 +334,12 @@ async function startServer() {
 
         // Add player if not already in (and not rejoining as host which is handled above)
         if (!room.players.find(p => p.id === socket.id || (playerEmail && p.email === playerEmail))) {
+          const user = playerEmail ? users.get(playerEmail) : null;
           room.players.push({
             id: socket.id,
             name: playerName,
             email: playerEmail,
+            avatarId: avatarId || user?.avatarId || 'amiya',
             isHost: isRejoiningHost,
             operator: null,
             status: 'WAITING'
@@ -358,7 +361,8 @@ async function startServer() {
           playerName,
           playerCount: room.players.length,
           status: room.status,
-          players: room.players // SYNC FULL LIST
+          players: room.players,
+          selectedOperators: room.selectedOperators
         });
         console.log(`User ${socket.id} joined room ${roomId}`);
       } else {

@@ -991,7 +991,7 @@ const App: React.FC = () => {
     }));
     
     if (socket) {
-      socket.emit('host-game', { roomId, hostName: profile.name, hostEmail: profile.email });
+      socket.emit('host-game', { roomId, hostName: profile.name, hostEmail: profile.email, avatarId: profile.avatarId });
       setShowCharacterSelect(true);
     }
   };
@@ -1001,7 +1001,12 @@ const App: React.FC = () => {
       setIsJoining(true);
       setJoinError(null);
       setGameState(prev => ({ ...prev, gameMode: 'MULTIPLAYER_JOIN', isHost: false }));
-      socket.emit('join-game', { roomId: joinRoomId, playerName: profile.name, playerEmail: profile.email });
+      socket.emit('join-game', { 
+        roomId: joinRoomId, 
+        playerName: profile.name, 
+        playerEmail: profile.email,
+        avatarId: profile.avatarId 
+      });
     }
   };
 
@@ -3448,11 +3453,11 @@ const App: React.FC = () => {
                           }}
                           className={`group relative aspect-[3/4] border rounded-md overflow-hidden transition-all ${
                             isSelected && !isMySelection 
-                              ? 'bg-zinc-800/50 border-zinc-800 opacity-60 cursor-not-allowed' 
+                              ? 'bg-zinc-800/40 border-zinc-900 opacity-50 cursor-not-allowed grayscale' 
                               : isPreview 
                                 ? 'bg-zinc-900 border-orange-500 ring-2 ring-orange-500/50 cursor-pointer shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
                                 : isMySelection
-                                  ? 'bg-zinc-900 border-green-500/50 cursor-pointer ring-1 ring-green-500/30'
+                                  ? 'bg-zinc-900 border-green-500/50 cursor-pointer ring-1 ring-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
                                   : 'bg-zinc-900 border-zinc-800 cursor-pointer hover:border-orange-500'
                           }`}
                         >
@@ -3491,12 +3496,16 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {previewOperator && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="w-full flex flex-col items-center gap-1 p-1.5 md:p-2 bg-zinc-900 border-t border-orange-500/30 shadow-[0_-10px_20px_rgba(0,0,0,0.5)] shrink-0"
-                  >
+                {previewOperator && (() => {
+                  const isSelectedByOthers = selectedOperators.includes(previewOperator.name) && 
+                    !gameState.players.find(p => p.id === socket?.id && (p.operator === previewOperator.name || p.operator?.name === previewOperator.name));
+                  
+                  return (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="w-full flex flex-col items-center gap-1 p-1.5 md:p-2 bg-zinc-900 border-t border-orange-500/30 shadow-[0_-10px_20px_rgba(0,0,0,0.5)] shrink-0"
+                    >
                     <div className="flex flex-row items-center gap-2 md:gap-4 w-full max-w-2xl overflow-hidden">
                       <div className="flex gap-1.5 shrink-0">
                         <div className="w-8 h-8 md:w-14 md:h-14 rounded border border-zinc-800 overflow-hidden shrink-0 bg-zinc-950">
@@ -3526,10 +3535,15 @@ const App: React.FC = () => {
                       <div className="flex flex-col gap-1 w-20 md:w-32 shrink-0">
                         <button 
                           onClick={() => startGame(previewOperator)}
-                          className="w-full px-2 md:px-4 py-1 md:py-1.5 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-1 group text-[8px] md:text-[10px]"
+                          disabled={isSelectedByOthers}
+                          className={`w-full px-2 md:px-4 py-1 md:py-1.5 font-black uppercase italic tracking-widest rounded-sm transition-all shadow-lg flex items-center justify-center gap-1 group text-[8px] md:text-[10px] ${
+                            isSelectedByOthers
+                              ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                              : 'bg-orange-500 text-black hover:bg-orange-400 shadow-orange-500/20'
+                          }`}
                         >
-                          <Shield className="w-3 h-3 group-hover:rotate-12 transition-transform" />
-                          Confirm
+                          <Shield className={`w-3 h-3 ${!isSelectedByOthers ? 'group-hover:rotate-12 transition-transform' : ''}`} />
+                          {isSelectedByOthers ? 'Deployed' : 'Confirm'}
                         </button>
                         <button 
                           onClick={() => setPreviewOperator(null)}
@@ -3539,8 +3553,9 @@ const App: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                  </motion.div>
-                )}
+                    </motion.div>
+                  );
+                })()}
               </div>
             </motion.div>
           )}
