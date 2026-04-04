@@ -755,13 +755,17 @@ const App: React.FC = () => {
       }
     });
 
-    newSocket.on('player-joined', ({ playerId, playerName, playerCount, status, players }) => {
+    newSocket.on('player-joined', ({ playerId, playerName, playerCount, status, players, selectedOperators }) => {
       addToLog(`A new Doctor has joined the mission (Total: ${playerCount}).`);
       
-      // Update our local players array so the Host sees the new player and can click 'Deploy Squad'
+      // Update our local players array and selected operators so everyone stays in sync
       if (players && Array.isArray(players)) {
         isNetworkUpdate.current = true;
         setGameState(prev => ({ ...prev, players }));
+      }
+      
+      if (selectedOperators && Array.isArray(selectedOperators)) {
+        setSelectedOperators(selectedOperators);
       }
     });
 
@@ -985,7 +989,15 @@ const App: React.FC = () => {
       gameMode: 'MULTIPLAYER_HOST', 
       roomId, 
       isHost: true,
-      players: [],
+      players: [{ 
+        id: socket?.id || 'pending', 
+        name: profile.name, 
+        email: profile.email, 
+        avatarId: profile.avatarId,
+        isHost: true,
+        operator: null,
+        status: 'WAITING'
+      }],
       gameStarted: false,
       winner: null
     }));
@@ -3316,7 +3328,10 @@ const App: React.FC = () => {
               className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden p-1 md:p-0"
             >
               <div className="flex items-center justify-between border-b border-zinc-800 pb-1 gap-2 shrink-0">
-                <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0">Select <span className="text-orange-500">Operator</span></h2>
+                <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0 flex items-center gap-2">
+                  Select <span className="text-orange-500">Operator</span>
+                  <span className="text-[7px] text-zinc-700 font-mono tracking-tighter px-1 border border-zinc-800/50 rounded bg-black/20">BUILD: V5-SYNC-PATCH</span>
+                </h2>
                 
                 {gameState.roomId && (
                   <div className="flex-1 flex items-center justify-center gap-4 px-4 overflow-hidden">
@@ -3341,6 +3356,8 @@ const App: React.FC = () => {
                       <div className="flex -space-x-1.5 shrink-0">
                         {Array.isArray(gameState.players) && gameState.players.length > 0 ? (
                           gameState.players.map(p => {
+                            // DEBUG: Log player data to browser console
+                            console.log(`[Sector Sync] Player: ${p.name}, AvatarId: ${p.avatarId}, Status: ${p.status}`);
                             const playerAvatar = AVATARS.find(a => a.id === p.avatarId) || AVATARS[0];
                             const isReady = p.status === 'READY' || p.operator;
                             const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
@@ -3388,22 +3405,26 @@ const App: React.FC = () => {
                             socket.emit('start-game', gameState.roomId);
                           }
                         }}
-                        disabled={gameState.players.length < 2 || gameState.players.length !== selectedOperators.length}
+                        disabled={gameState.players.length < 2 || !gameState.players.every(p => p.operator !== null)}
                         className={`w-auto px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition-all font-black text-[10px] md:text-xs tracking-widest uppercase italic overflow-hidden relative group/start shrink-0 ${
-                          gameState.players.length >= 2 && gameState.players.length === selectedOperators.length
-                            ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:scale-[1.02] active:scale-95' 
-                            : 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed'
+                          gameState.players.length >= 2 && gameState.players.every(p => p.operator !== null)
+                            ? 'bg-gradient-to-r from-orange-600 to-orange-400 text-black shadow-[0_0_20px_rgba(249,115,22,0.4)] hover:scale-[1.02] active:scale-95 cursor-pointer' 
+                            : 'bg-zinc-900 border border-zinc-800 text-zinc-600 cursor-not-allowed'
                         }`}
                       >
-                        {gameState.players.length >= 2 && (
+                        {gameState.players.length >= 2 && gameState.players.every(p => p.operator !== null) && (
                           <motion.div 
                             animate={{ x: ['-100%', '200%'] }}
                             transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                             className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]"
                           />
                         )}
-                        <Play className={`w-4 h-4 ${gameState.players.length >= 2 ? 'animate-pulse' : ''}`} /> 
-                        {gameState.players.length < 2 ? `SQUAD: ${gameState.players.length}/2+` : 'Deploy Squad'}
+                        <Play className={`w-4 h-4 ${gameState.players.length >= 2 && gameState.players.every(p => p.operator !== null) ? 'animate-pulse' : ''}`} /> 
+                        {gameState.players.length < 2 
+                          ? `SQUAD: ${gameState.players.length}/2+` 
+                          : !gameState.players.every(p => p.operator !== null)
+                            ? 'SYNCING DEPLOYMENT...'
+                            : 'Deploy Squad'}
                       </button>
                     ) : (
                       <div className="px-3 py-1.5 bg-zinc-800/50 border border-zinc-700 text-zinc-400 font-black uppercase italic tracking-widest rounded-sm text-[9px] md:text-[11px] flex items-center gap-2">
@@ -3477,17 +3498,24 @@ const App: React.FC = () => {
                           <div className={`absolute top-1 right-1 w-1 h-1 md:w-1.5 md:h-1.5 rounded-full z-20 ${isPreview ? 'animate-ping' : ''}`} style={{ backgroundColor: op.color }} />
                           
                           {isSelected && (
-                            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/50">
-                              <div className="flex flex-col items-center gap-0.5 md:gap-1">
-                                <div className={`text-[6px] md:text-[8px] font-black uppercase italic tracking-widest text-white px-2 py-0.5 rotate-[-15deg] shadow-lg ${isMySelection ? 'bg-green-600' : 'bg-red-500'}`}>
-                                  {isMySelection ? 'Confirmed' : 'Deployed'}
-                                </div>
-                                {selectingPlayer && (
-                                  <div className="text-[5px] md:text-[6px] font-bold text-zinc-100 uppercase tracking-[0.2em] bg-black/80 px-1 py-0.5 rounded-sm truncate max-w-[90%] border border-zinc-700/50">
-                                    {isMySelection ? 'You' : selectingPlayer.name}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/75 backdrop-blur-[1.5px] transition-all">
+                              {isMySelection ? (
+                                <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                                  <div className="bg-green-500/20 p-1.5 md:p-2 rounded-full border border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.4)] mb-1">
+                                    <CheckCircle2 className="w-5 h-5 md:w-8 md:h-8 text-green-500" />
                                   </div>
-                                )}
-                              </div>
+                                  <div className="text-[7px] md:text-[10px] font-black text-green-500 uppercase tracking-widest bg-black/60 px-2 py-0.5 rounded border border-green-500/30">Confirmed</div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center w-full px-1">
+                                  <div className="bg-red-600 text-white font-black uppercase italic tracking-[0.2em] text-[7px] md:text-[11px] px-2 md:px-4 py-1 shadow-[0_0_15px_rgba(239,68,68,0.5)] rotate-[-12deg] border border-red-400 mb-2">Deployed</div>
+                                  {selectingPlayer && (
+                                    <div className="text-[5px] md:text-[8px] font-mono text-zinc-100 uppercase tracking-tighter bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-sm shadow-md truncate max-w-[95%]">
+                                      {selectingPlayer.name}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </motion.div>

@@ -443,10 +443,17 @@ async function startServer() {
     socket.on('start-game', (roomId) => {
       const room = rooms.get(roomId);
       if (room && room.hostId === socket.id) {
-        if (room.players.length < 2) { // Allow starting with at least 2 players
+        if (room.players.length < 2) { 
           socket.emit('error', 'At least 2 operators required for this mission.');
           return;
         }
+        
+        const allReady = room.players.every(p => p.operator !== null);
+        if (!allReady) {
+          socket.emit('error', 'Operational synchronization in progress... Wait for all Doctors to select an operator.');
+          return;
+        }
+
         room.status = 'IN_PROGRESS';
         io.to(roomId).emit('mission-start');
         startTurnTimer(roomId);
