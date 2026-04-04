@@ -16,7 +16,8 @@ async function startServer() {
   const io = new Server(httpServer, {
     cors: {
       origin: "*", // Global CORS for debugging connectivity
-      methods: ["GET", "POST"]
+      methods: ["GET", "POST"],
+      credentials: true
     }
   });
 

@@ -630,12 +630,16 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Render Backend URL fallback
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://arknights-monopoly.onrender.com';
+    // Render Backend URL fallback (hardcoded for reliability)
+    const DEFAULT_BACKEND_URL = 'https://arknights-monopoly.onrender.com';
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || DEFAULT_BACKEND_URL;
+    
+    addToLog(`Mission Control: Initializing tactical link with ${BACKEND_URL}...`);
+    
     const newSocket = io(BACKEND_URL, { 
-      transports: ['websocket'],
-      reconnectionAttempts: 5,
-      timeout: 20000 // 20s timeout for Render wake-up
+      transports: ['polling', 'websocket'], // Allow polling for initial handshake
+      reconnectionAttempts: 8,
+      timeout: 30000 // 30s timeout for Render wake-up
     });
     setSocket(newSocket);
 
