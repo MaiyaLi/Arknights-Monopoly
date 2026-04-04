@@ -59,7 +59,7 @@ async function startServer() {
     }
   }
   const db = admin.apps.length > 0 ? admin.firestore() : null;
-  const usersCollection = db.collection('users');
+  const usersCollection = db ? db.collection('users') : null;
 
   // Store user data by email for persistent identification
   interface UserData {
@@ -76,6 +76,7 @@ async function startServer() {
   // Load existing users from Firestore
   async function loadUsers() {
     try {
+      if (!usersCollection) throw new Error('Cloud database not configured.');
       const snapshot = await usersCollection.get();
       snapshot.forEach(doc => {
         const email = doc.id;
@@ -98,6 +99,7 @@ async function startServer() {
 
   // Save user to Firestore
   async function saveUser(email: string, userData: UserData) {
+    if (!usersCollection) return; // Silent skip if no cloud DB
     try {
       const { socketId, ...toSave } = userData;
       await usersCollection.doc(email).set(toSave);
