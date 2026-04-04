@@ -15,11 +15,14 @@ async function startServer() {
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' 
-        ? ["https://arknights-monopoly.web.app", "https://arknights-monopoly.firebaseapp.com"] 
-        : "*",
+      origin: "*", // Global CORS for debugging connectivity
       methods: ["GET", "POST"]
     }
+  });
+
+  // Health check route for Render/monitoring
+  app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'active', timestamp: new Date().toISOString() });
   });
 
   const PORT = Number(process.env.PORT) || 3000;
@@ -46,10 +49,15 @@ async function startServer() {
     });
     console.log('Firebase Admin initialized with local service account file.');
   } else {
-    admin.initializeApp();
-    console.log('Firebase Admin initialized with default credentials.');
+    try {
+      // Check if we are in a GCP environment or have default credentials
+      admin.initializeApp();
+      console.log('Firebase Admin initialized with default credentials.');
+    } catch (e) {
+      console.error('Firebase Admin failed to initialize with default credentials. Running in memory-only mode.');
+    }
   }
-  const db = admin.firestore();
+  const db = admin.apps.length > 0 ? admin.firestore() : null;
   const usersCollection = db.collection('users');
 
   // Store user data by email for persistent identification
@@ -300,7 +308,7 @@ async function startServer() {
     });
 
     socket.on('join-game', ({ roomId: rawRoomId, playerName, playerEmail }) => {
-      const roomId = (rawRoomId || '').toUpperCase();
+      const roomId = (rawRoomId || '').toString().trim().toUpperCase();
       const room = rooms.get(roomId);
       if (room) {
         if (room.players.length >= 4 && !room.players.find(p => p.email === playerEmail)) {
@@ -393,10 +401,13 @@ async function startServer() {
         }
         const playerIndex = room.players.findIndex(p => p.id === socket.id);
         if (playerIndex !== -1) {
-          const oldOp = typeof room.players[playerIndex].operator === 'string' 
-            ? room.players[playerIndex].operator 
-            : room.players[playerIndex].operator.name;
-          room.selectedOperators = room.selectedOperators.filter(o => o !== oldOp);
+          const prevOp = room.players[playerIndex].operator;
+          const oldOp = typeof prevOp === 'string' 
+            ? prevOp 
+            : prevOp ? prevOp.name : null;
+          if (oldOp) {
+            room.selectedOperators = room.selectedOperators.filter(o => o !== oldOp);
+          }
           room.players[playerIndex] = { ...player, id: socket.id };
         } else {
           room.players.push({ ...player, id: socket.id });
@@ -407,7 +418,7 @@ async function startServer() {
           operator: opName, playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators
         });
 
-        if (room.status === 'LOBBY' && room.expectedPlayerCount && room.players.length === room.expectedPlayerCount) {
+        if (room.status === 'LOBBY' && room.expectedPlayerCount && room.selectedOperators.length === room.expectedPlayerCount) {
           room.status = 'IN_PROGRESS';
           io.to(roomId).emit('mission-start');
           startTurnTimer(roomId);

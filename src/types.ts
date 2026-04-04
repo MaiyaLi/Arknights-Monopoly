@@ -42,6 +42,7 @@ export interface Operator {
   spriteBaseName: string;
   dormImage: string;
   commandCenterImage: string;
+  description: string;
   skill: Skill;
 }
 

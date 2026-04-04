@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { 
   Dice5, 
   User, 
@@ -63,6 +63,62 @@ const SOUNDS = {
 
 const MAP_IMAGE_URL = '/Resources/Map/Arknight%20Map.png';
 
+const PRELOAD_ASSETS = [
+  MAP_IMAGE_URL,
+  '/Resources/Other/Arknights Monopoly Game Logo.png',
+  ...Object.values(SOUNDS),
+  ...Array.from({ length: 6 }, (_, i) => `/Resources/Dices/Die Face/Lungmen DIce/Lungmen Dice ${i + 1}.png`),
+  ...Array.from({ length: 6 }, (_, i) => `/Resources/Dices/Die Face/Rhode Island Dice/Rhode Island Dice ${i + 1}.png`),
+  ...Array.from({ length: 8 }, (_, i) => `/Resources/Dices/Rolling Animation/Rolling ${i + 1}.png`),
+  ...OPERATORS.flatMap(op => [
+    op.portrait, 
+    op.dormImage, 
+    op.commandCenterImage,
+    `/Resources/Characters/${op.spriteFolder}/${op.spriteBaseName} 1.png`,
+    `/Resources/Characters/${op.spriteFolder}/${op.spriteBaseName} 2.png`,
+    `/Resources/Characters/${op.spriteFolder}/${op.spriteBaseName} 3.png`,
+    `/Resources/Characters/${op.spriteFolder}/${op.spriteBaseName} 4.png`
+  ]),
+  ...AVATARS.map(a => a.url),
+  ...LGD_CARDS.map(c => c.image),
+  ...INTEL_CARDS.map(c => c.image),
+  '/Resources/Characters/Icon/Alive/Amiya Alive.png'
+];
+
+const LoadingScreen = ({ progress }: { progress: number }) => {
+  const clampedProgress = Math.min(100, progress);
+  return (
+  <div className="fixed inset-0 z-[500] bg-black flex flex-col items-center justify-center p-8">
+    <div className="w-full max-w-md">
+      <div className="flex justify-between items-end mb-2">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-orange-500 uppercase tracking-[0.3em]">Rhodes Island Interface</span>
+          <span className="text-2xl font-black italic uppercase tracking-tighter text-white">Operational Intel Sync</span>
+        </div>
+        <span className="text-xl font-mono text-orange-500 font-bold">{Math.round(clampedProgress)}%</span>
+      </div>
+      <div className="h-1.5 w-full bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${clampedProgress}%` }}
+          className="h-full bg-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.5)]"
+        />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest">
+          [SYSTEM] CACHING TACTICAL AUDIO...<br />
+          [KERNEL] SYNCING OPERATOR FILES...
+        </div>
+        <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest text-right">
+          INTEGRITY: OPTIMAL<br />
+          LATENCY: MINIMAL
+        </div>
+      </div>
+    </div>
+  </div>
+);
+};
+
 const Dice = ({ value, theme, diceIndex }: { value: number; theme: 'lungmen' | 'rhode_island'; diceIndex: number; soundEnabled?: boolean; volume?: number }) => {
   const diceImagePath = theme === 'lungmen'
       ? `/Resources/Dices/Die Face/Lungmen DIce/Lungmen Dice ${value || 1}.png`
@@ -103,8 +159,14 @@ const RollingDiceAnimation = () => {
   
   useEffect(() => {
     const interval = setInterval(() => {
-      setFrame(f => (f % 8) + 1);
-    }, 60);
+      setFrame(f => {
+        if (f >= 8) {
+          clearInterval(interval);
+          return 8;
+        }
+        return f + 1;
+      });
+    }, 125);
     return () => clearInterval(interval);
   }, []);
 
@@ -135,10 +197,10 @@ const PlayerToken: React.FC<{ player: Player; animationSpeed: number }> = ({ pla
   useEffect(() => {
     let interval: any;
     if (player.isMoving) {
-      let currentFrame = 1;
+      const getGlobalFrame = () => Math.floor(Date.now() / (120 / animationSpeed)) % 4 + 1;
+      setFrame(getGlobalFrame());
       interval = setInterval(() => {
-        setFrame(currentFrame);
-        currentFrame = (currentFrame % 4) + 1;
+        setFrame(getGlobalFrame());
       }, 120 / animationSpeed);
     } else {
       setFrame(4);
@@ -148,24 +210,11 @@ const PlayerToken: React.FC<{ player: Player; animationSpeed: number }> = ({ pla
 
   return (
     <motion.div
-      layoutId={player.id}
+      key={`${player.id}-${player.position}`}
       className="w-6 h-6 md:w-8 md:h-8 relative z-20"
-      initial={{ scale: 0, opacity: 0 }}
+      initial={{ scale: 0.5, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      transition={{ 
-        layout: { 
-          type: "spring", 
-          stiffness: 280, 
-          damping: 24,
-          mass: 0.8
-        }
-      }}
-      exit={{ 
-        scale: 0, 
-        opacity: 0, 
-        rotate: 180,
-        transition: { duration: 0.5, ease: "backIn" }
-      }}
+      transition={{ duration: 0.1 }}
     >
       <img 
         src={`/Resources/Characters/${player.operator.spriteFolder}/${player.operator.spriteBaseName} ${frame}.png`} 
@@ -306,6 +355,11 @@ const App: React.FC = () => {
   const [showMobileReport, setShowMobileReport] = useState(false);
   const [showJoinRoom, setShowJoinRoom] = useState(false);
   const [joinRoomId, setJoinRoomId] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
   const [profile, setProfile] = useState(() => {
     const saved = localStorage.getItem('arknights_monopoly_profile');
@@ -350,6 +404,65 @@ const App: React.FC = () => {
   const [queuePosition, setQueuePosition] = useState(0);
   const [queueTotal, setQueueTotal] = useState(0);
 
+  // Asset Preloading Logic
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [isAssetsLoaded, setIsAssetsLoaded] = useState(false);
+
+  useEffect(() => {
+    let loadedCount = 0;
+    const totalAssets = PRELOAD_ASSETS.length;
+
+    if (totalAssets === 0) {
+      setIsAssetsLoaded(true);
+      return;
+    }
+
+    const loadAsset = (url: string) => {
+      return new Promise((resolve) => {
+        const isAudio = url.endsWith('.mp3') || url.includes('mixkit.co');
+        if (isAudio) {
+          const audio = new Audio();
+          audio.src = url;
+          audio.oncanplaythrough = () => {
+            loadedCount++;
+            setLoadingProgress((loadedCount / totalAssets) * 100);
+            resolve(url);
+          };
+          audio.onerror = () => {
+            loadedCount++;
+            setLoadingProgress((loadedCount / totalAssets) * 100);
+            resolve(url);
+          };
+          // Don't wait for audio to buffer to avoid blocking the initial load
+          setTimeout(() => {
+            loadedCount++;
+            setLoadingProgress((loadedCount / totalAssets) * 100);
+            resolve(url);
+          }, 100);
+        } else {
+          const img = new Image();
+          img.src = url;
+          const done = () => {
+             loadedCount++;
+             setLoadingProgress((loadedCount / totalAssets) * 100);
+             resolve(url);
+          };
+          img.onload = done;
+          img.onerror = done;
+        }
+      });
+    };
+
+    Promise.all(PRELOAD_ASSETS.map(url => loadAsset(url))).then(() => {
+      // Small delay for smooth transition
+      setTimeout(() => setIsAssetsLoaded(true), 300);
+    });
+
+    // Failsafe: Force complete after 4 seconds to prevent endless loading
+    const failsafe = setTimeout(() => setIsAssetsLoaded(true), 4000);
+    return () => clearTimeout(failsafe);
+  }, []);
+
   const profileRef = useRef(profile);
   useEffect(() => {
     profileRef.current = profile;
@@ -370,6 +483,13 @@ const App: React.FC = () => {
     audio.volume = settings.volume / 100;
     audio.play().catch(e => console.error("Audio play failed:", e));
   }, [settings.volume, settings.soundEnabled]);
+
+  const copyRoomId = useCallback(() => {
+    if (!gameState.roomId) return;
+    navigator.clipboard.writeText(gameState.roomId);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  }, [gameState.roomId]);
 
   const saveGame = () => {
     if (!gameState.gameStarted) {
@@ -510,11 +630,32 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Determine the backend URL. Default to current origin if in same-origin setup (like local dev)
-    // but allow overriding for split hosting (Firebase + Render).
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
-    const newSocket = io(BACKEND_URL);
+    // Render Backend URL fallback
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://arknights-monopoly.onrender.com';
+    const newSocket = io(BACKEND_URL, { 
+      transports: ['websocket'],
+      reconnectionAttempts: 5,
+      timeout: 20000 // 20s timeout for Render wake-up
+    });
     setSocket(newSocket);
+
+    newSocket.on('connect', () => {
+      setIsConnected(true);
+      setConnectError(null);
+      addToLog("Tactical link established: Online.");
+    });
+
+    newSocket.on('connect_error', (err) => {
+      setIsConnected(false);
+      setConnectError(`Tactical Link Error: ${err.message || 'Signal Refused'}`);
+      setIsJoining(false); // Reset joining spinner if it fails to connect
+      addToLog(`Tactical link error: ${err.message || 'Connection Interrupted'}`);
+    });
+
+    newSocket.on('disconnect', () => {
+      setIsConnected(false);
+      addToLog("Tactical link lost: Offline.");
+    });
 
     newSocket.on('joined-room', ({ roomId, status, isHost, players, selectedOperators, gameState: syncedGameState }) => {
       isNetworkUpdate.current = true;
@@ -564,6 +705,8 @@ const App: React.FC = () => {
       }
       
       setShowJoinRoom(false);
+      setIsJoining(false);
+      setJoinError(null);
       setShowCharacterSelect(status === 'LOBBY');
       setIsQueuing(false); // RELIABLY CLEAR SEARCHING OVERLAY
       setQueuePosition(0);
@@ -600,10 +743,14 @@ const App: React.FC = () => {
       }
     });
 
-    newSocket.on('player-joined', ({ playerId, playerName, playerCount, status }) => {
+    newSocket.on('player-joined', ({ playerId, playerName, playerCount, status, players }) => {
       addToLog(`A new Doctor has joined the mission (Total: ${playerCount}).`);
-      // We no longer manually emit sync-game-state here. 
-      // The server is the source of truth for the participant list in the lobby.
+      
+      // Update our local players array so the Host sees the new player and can click 'Deploy Squad'
+      if (players && Array.isArray(players)) {
+        isNetworkUpdate.current = true;
+        setGameState(prev => ({ ...prev, players }));
+      }
     });
 
     newSocket.on('player-left', ({ playerId, players, selectedOperators }) => {
@@ -708,8 +855,10 @@ const App: React.FC = () => {
     newSocket.on('error', (msg) => {
       setGameState(prev => ({ ...prev, message: `ERROR: ${msg}` }));
       addToLog(`SYSTEM ERROR: ${msg}`);
+      setJoinError(msg);
+      setIsJoining(false);
       // If we were joining, go back to menu
-      setShowJoinRoom(false);
+      // setShowJoinRoom(false); // Keep open so they can see the error
       setShowCharacterSelect(false);
     });
 
@@ -722,38 +871,35 @@ const App: React.FC = () => {
     setPreviewOperator(null);
     const playerAvatar = AVATARS.find(a => a.id === profile.avatarId) || AVATARS[0];
 
-    if (gameState.gameMode === 'SINGLEPLAYER') {
-      const otherOps = OPERATORS.filter(op => op.name !== selectedOp.name);
-      const shuffled = [...otherOps].sort(() => 0.5 - Math.random());
-      const selectedAI = shuffled.slice(0, 3);
-      
-      // Track selected operators for UI
-      setSelectedOperators([selectedOp.name, ...selectedAI.map(op => op.name)]);
+    const isLocalSelection = gameState.players.length === 1 && !gameState.roomId;
+    
+    if (gameState.gameMode === 'SINGLEPLAYER' || isLocalSelection) {
+      const initialPlayer: Player = {
+        id: 'player-1',
+        name: profile.name,
+        operator: selectedOp,
+        avatar: AVATARS.find(a => a.id === profile.avatarId) || AVATARS[0],
+        position: 0,
+        turnCount: 0,
+        orundum: STARTING_ORUNDUM + (selectedOp.name === 'Texas' ? 1000 : 0),
+        properties: [],
+        isBankrupt: false,
+        inJail: false,
+        jailTurns: 0,
+        color: selectedOp.color,
+        isAI: false,
+        skillCooldown: 0,
+        isMoving: false,
+        animationFrame: 4
+      };
 
-      const initialPlayers: Player[] = [
-        {
-          id: 'p0',
-          name: profile.name,
-          operator: selectedOp,
-          avatar: playerAvatar,
-          position: 0,
-          turnCount: 0,
-          orundum: STARTING_ORUNDUM + (selectedOp.name === 'Texas' ? 1000 : 0),
-          properties: [],
-          isBankrupt: false,
-          inJail: false,
-          jailTurns: 0,
-          color: selectedOp.color,
-          isAI: false,
-          skillCooldown: 0,
-          isMoving: false,
-          animationFrame: 4
-        },
-        ...selectedAI.map((op, i) => ({
-          id: `p${i + 1}`,
-          name: op.name,
+      const aiPlayers: Player[] = Array.from({ length: 3 }).map((_, i) => {
+        const op = OPERATORS.filter(o => o.name !== selectedOp.name)[i];
+        return {
+          id: `ai-${i + 1}`,
+          name: `${op.name} (AI)`,
           operator: op,
-          avatar: AVATARS.find(a => a.id === `avatar_${op.name.toLowerCase().replace(/'/g, '')}`) || AVATARS[0],
+          avatar: AVATARS.find(a => a.name === op.name) || AVATARS[0],
           position: 0,
           turnCount: 0,
           orundum: STARTING_ORUNDUM + (op.name === 'Texas' ? 1000 : 0),
@@ -766,9 +912,11 @@ const App: React.FC = () => {
           skillCooldown: 0,
           isMoving: false,
           animationFrame: 4
-        }))
-      ];
+        };
+      });
 
+      const initialPlayers = [initialPlayer, ...aiPlayers];
+      
       const hasMostimaOpponent = initialPlayers.some(p => p.id !== initialPlayers[0].id && p.operator.name === 'Mostima');
       const baseTime = 45; // Default limit
       const turnTimer = hasMostimaOpponent ? Math.max(10, baseTime - 5) : baseTime;
@@ -786,7 +934,7 @@ const App: React.FC = () => {
         name: profile.name,
         email: profile.email,
         operator: selectedOp,
-        avatar: playerAvatar,
+        avatar: AVATARS.find(a => a.id === profile.avatarId) || AVATARS[0],
         position: 0,
         turnCount: 0,
         orundum: STARTING_ORUNDUM + (selectedOp.name === 'Texas' ? 1000 : 0),
@@ -800,7 +948,9 @@ const App: React.FC = () => {
         isMoving: false,
         animationFrame: 4
       };
-      socket.emit('select-operator', { roomId: gameState.roomId, operator: selectedOp.name, player });
+      
+      socket.emit('select-operator', { roomId: gameState.roomId, operator: selectedOp, player });
+      addToLog(`Confirmed deployment: ${selectedOp.name}. Awaiting command...`);
     }
   };
 
@@ -810,7 +960,9 @@ const App: React.FC = () => {
 
   const handleHost = () => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    // Explicitly reset players and selected operators when hosting to prevent stale state from previous sessions
+    
+    // Set up new host state without wiping existing operator selections
+    // that might have been processed by the socket prematurely
     setGameState(prev => ({ 
       ...prev, 
       gameMode: 'MULTIPLAYER_HOST', 
@@ -820,7 +972,6 @@ const App: React.FC = () => {
       gameStarted: false,
       winner: null
     }));
-    setSelectedOperators([]);
     
     if (socket) {
       socket.emit('host-game', { roomId, hostName: profile.name, hostEmail: profile.email });
@@ -830,6 +981,8 @@ const App: React.FC = () => {
 
   const handleJoin = () => {
     if (socket && joinRoomId) {
+      setIsJoining(true);
+      setJoinError(null);
       setGameState(prev => ({ ...prev, gameMode: 'MULTIPLAYER_JOIN', isHost: false }));
       socket.emit('join-game', { roomId: joinRoomId, playerName: profile.name, playerEmail: profile.email });
     }
@@ -983,7 +1136,7 @@ const App: React.FC = () => {
     return gameState.players.find(p => 
       (p.email && profile.email && p.email === profile.email) ||
       p.id === socket?.id || 
-      (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'p0')
+      (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'player-1')
     );
   }, [gameState.players, socket?.id, profile.email, gameState.gameMode]);
 
@@ -2694,6 +2847,10 @@ const App: React.FC = () => {
     );
   };
 
+  if (!isAssetsLoaded) {
+    return <LoadingScreen progress={loadingProgress} />;
+  }
+
   if (!gameState.gameStarted) {
     return (
       <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans flex items-center justify-center p-1.5 md:p-8 relative overflow-hidden">
@@ -2885,10 +3042,19 @@ const App: React.FC = () => {
                           <div className="w-16 h-16 md:w-20 md:h-20 rounded bg-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
                             <img src={op.portrait} alt={op.name} className="w-full h-full object-cover grayscale" referrerPolicy="no-referrer" />
                           </div>
-                          <div>
-                            <div className="text-base md:text-lg font-black italic uppercase tracking-tight">{op.name}</div>
-                            <div className="text-[9px] md:text-[10px] text-orange-500 font-mono uppercase mb-1 md:mb-2">{op.title}</div>
-                            <p className="text-[10px] md:text-xs text-zinc-500 leading-tight md:leading-relaxed">Operator assigned to strategic asset acquisition and sector management protocols.</p>
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start mb-1">
+                              <div>
+                                <div className="text-base md:text-lg font-black italic uppercase tracking-tight leading-none">{op.name}</div>
+                                <div className="text-[8px] md:text-[9px] text-zinc-500 font-mono uppercase">{op.title}</div>
+                              </div>
+                              <div className="text-[8px] font-black bg-orange-500/10 text-orange-500 px-1 py-0.5 rounded border border-orange-500/30 uppercase tracking-widest">{op.skill.name}</div>
+                            </div>
+                            <p className="text-[10px] md:text-xs text-zinc-400 leading-tight mb-2 italic">"{op.description}"</p>
+                            <div className="flex items-center gap-2 text-[9px] md:text-[10px] text-zinc-500 border-t border-zinc-800 pt-1">
+                              <Zap className="w-3 h-3 text-orange-500" />
+                              <span className="font-bold uppercase tracking-tighter">Passive:</span> {op.skill.description}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -2932,19 +3098,69 @@ const App: React.FC = () => {
             >
               <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter mb-4 md:mb-6">Join <span className="text-orange-500">Mission</span></h2>
               <div className="flex flex-col gap-3 md:gap-4">
-                <input 
-                  type="text" 
-                  placeholder="ENTER ROOM ID"
-                  value={joinRoomId}
-                  onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
-                  className="w-full bg-zinc-800 border border-zinc-700 p-3 md:p-4 rounded text-center text-lg md:text-xl font-mono font-bold tracking-widest outline-none focus:border-orange-500"
-                />
-                <div className="flex gap-2">
-                  <button onClick={() => setShowJoinRoom(false)} className="flex-1 py-2 md:py-3 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm">Cancel</button>
-                  <button onClick={handleJoin} className="flex-1 py-2 md:py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm">Connect</button>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="ENTER ROOM ID"
+                    value={joinRoomId}
+                    disabled={isJoining}
+                    onChange={(e) => {
+                      setJoinError(null);
+                      setJoinRoomId(e.target.value.toUpperCase().trim());
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+                    className="w-full bg-zinc-800 border border-zinc-700 p-3 md:p-4 rounded text-center text-lg md:text-xl font-mono font-bold tracking-widest outline-none focus:border-orange-500 disabled:opacity-50"
+                  />
+                  {isJoining && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded">
+                      <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
+                    </div>
+                  )}
                 </div>
-              </div>
-            </motion.div>
+                
+                {joinError && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -5 }} 
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded text-[10px] text-red-500 font-bold uppercase tracking-tight"
+                  >
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    {joinError}
+                  </motion.div>
+                )}
+
+                <div className="flex gap-2">
+                  <button 
+                    disabled={isJoining}
+                    onClick={() => {
+                      setShowJoinRoom(false);
+                      setJoinError(null);
+                    }} 
+                    className="flex-1 py-2 md:py-3 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm hover:bg-zinc-900 transition-all disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                    <button 
+                      disabled={isJoining || (!joinRoomId && isConnected)}
+                      onClick={handleJoin} 
+                      className="flex-1 py-2 md:py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm hover:bg-orange-400 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isJoining && <Loader2 className="w-3 h-3 animate-spin" />}
+                      {(!isConnected && isJoining) ? 'Initializing Link...' : 'Confirm'}
+                    </button>
+                  </div>
+                  
+                  {!isConnected && isJoining && (
+                    <motion.div 
+                      initial={{ opacity: 0 }} 
+                      animate={{ opacity: 1 }}
+                      className="text-[8px] text-zinc-500 font-mono text-center uppercase tracking-widest animate-pulse"
+                    >
+                      Establishing tactical link with Render... Please wait up to 30s.
+                    </motion.div>
+                  )}
+                </div>
+              </motion.div>
           ) : !showCharacterSelect ? (
             <motion.div 
               key="main-menu"
@@ -2960,6 +3176,14 @@ const App: React.FC = () => {
                   <span className="text-orange-500">Monopoly</span>
                 </h1>
                 <p className="text-zinc-500 font-mono text-[8px] md:text-[10px] tracking-[0.2em] uppercase">Strategic Asset Acquisition Protocol</p>
+                
+                {/* Tactical Link Status */}
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/40 border border-zinc-800 rounded-full mt-1">
+                  <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
+                  <span className={`text-[7px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
+                    {isConnected ? 'Link Active: ONLINE' : 'Link Lost: OFFLINE'}
+                  </span>
+                </div>
               </div>
 
               <div className="flex flex-col gap-1 md:gap-1.5 w-56 md:w-64 shrink-0">
@@ -3063,7 +3287,16 @@ const App: React.FC = () => {
                   <div className="flex-1 flex items-center justify-center gap-4 px-4 overflow-hidden">
                     <div className="hidden sm:flex flex-col items-start min-w-0">
                       <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-0.5">Mission Sector</div>
-                      <div className="text-[10px] font-mono text-orange-500 font-bold tracking-widest truncate">{gameState.roomId}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[10px] font-mono text-orange-500 font-bold tracking-widest truncate">{gameState.roomId}</div>
+                        <button 
+                          onClick={copyRoomId}
+                          className={`p-1 rounded transition-all ${copySuccess ? 'bg-green-500/20 text-green-500' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'}`}
+                          title="Copy Mission Code"
+                        >
+                          {copySuccess ? <CheckCircle2 className="w-3 h-3" /> : <Save className="w-3 h-3" />}
+                        </button>
+                      </div>
                     </div>
                     
                   <div className="h-6 w-px bg-zinc-800 hidden sm:block" />
@@ -3100,22 +3333,22 @@ const App: React.FC = () => {
                             socket.emit('start-game', gameState.roomId);
                           }
                         }}
-                        disabled={gameState.players.length !== 4 || gameState.players.length !== selectedOperators.length}
+                        disabled={gameState.players.length < 2 || gameState.players.length !== selectedOperators.length}
                         className={`w-auto px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition-all font-black text-[10px] md:text-xs tracking-widest uppercase italic overflow-hidden relative group/start shrink-0 ${
-                          gameState.players.length === 4 
+                          gameState.players.length >= 2 && gameState.players.length === selectedOperators.length
                             ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:scale-[1.02] active:scale-95' 
                             : 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed'
                         }`}
                       >
-                        {gameState.players.length === 4 && (
+                        {gameState.players.length >= 2 && (
                           <motion.div 
                             animate={{ x: ['-100%', '200%'] }}
                             transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                             className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]"
                           />
                         )}
-                        <Play className={`w-4 h-4 ${gameState.players.length === 4 ? 'animate-pulse' : ''}`} /> 
-                        {gameState.players.length < 4 ? `SQUAD: ${gameState.players.length}/4` : 'Deploy Squad'}
+                        <Play className={`w-4 h-4 ${gameState.players.length >= 2 ? 'animate-pulse' : ''}`} /> 
+                        {gameState.players.length < 2 ? `SQUAD: ${gameState.players.length}/2+` : 'Deploy Squad'}
                       </button>
                     ) : (
                       <div className="px-3 py-1.5 bg-zinc-800/50 border border-zinc-700 text-zinc-400 font-black uppercase italic tracking-widest rounded-sm text-[9px] md:text-[11px] flex items-center gap-2">
@@ -3145,35 +3378,58 @@ const App: React.FC = () => {
                     {OPERATORS.map((op) => {
                       const isSelected = selectedOperators.includes(op.name);
                       const isPreview = previewOperator?.name === op.name;
-                      const selectingPlayer = gameState.players.find(p => (typeof p.operator === 'string' ? p.operator : p.operator?.name) === op.name);
+                      // Improved player identification in the grid
+                      const selectingPlayer = gameState.players.find(p => {
+                        const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
+                        return pOpName === op.name;
+                      });
+                      
+                      const isMySelection = selectingPlayer && selectingPlayer.id === socket?.id;
                       
                       return (
                         <motion.div
                           key={op.name}
-                          whileHover={!isSelected ? { scale: 1.02 } : {}}
-                          whileTap={!isSelected ? { scale: 0.98 } : {}}
-                          onClick={() => !isSelected && setPreviewOperator(op)}
-                          className={`group relative aspect-[3/4] border rounded-md overflow-hidden transition-all ${isSelected ? 'bg-zinc-800/50 border-zinc-800 opacity-50 cursor-not-allowed' : isPreview ? 'bg-zinc-900 border-orange-500 ring-1 ring-orange-500/50 cursor-pointer' : 'bg-zinc-900 border-zinc-800 cursor-pointer hover:border-orange-500'}`}
+                          whileHover={!isSelected || isMySelection ? { scale: 1.02 } : {}}
+                          whileTap={!isSelected || isMySelection ? { scale: 0.98 } : {}}
+                          onClick={() => {
+                            if (!isSelected || isMySelection) {
+                              setPreviewOperator(op);
+                            }
+                          }}
+                          className={`group relative aspect-[3/4] border rounded-md overflow-hidden transition-all ${
+                            isSelected && !isMySelection 
+                              ? 'bg-zinc-800/50 border-zinc-800 opacity-60 cursor-not-allowed' 
+                              : isPreview 
+                                ? 'bg-zinc-900 border-orange-500 ring-2 ring-orange-500/50 cursor-pointer shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
+                                : isMySelection
+                                  ? 'bg-zinc-900 border-green-500/50 cursor-pointer ring-1 ring-green-500/30'
+                                  : 'bg-zinc-900 border-zinc-800 cursor-pointer hover:border-orange-500'
+                          }`}
                         >
                           <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10" />
                           <img 
                             src={op.portrait} 
                             alt={op.name} 
                             referrerPolicy="no-referrer"
-                            className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${isSelected ? 'grayscale' : 'grayscale group-hover:grayscale-0'}`}
+                            className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${isSelected && !isMySelection ? 'grayscale' : 'grayscale group-hover:grayscale-0'}`}
                           />
                           <div className="absolute bottom-0 left-0 w-full p-1 md:p-1.5 z-20">
                             <div className="text-[5px] md:text-[8px] font-mono text-orange-500 mb-0 truncate">{op.title}</div>
                             <div className="text-[8px] md:text-xs font-black italic uppercase tracking-tighter leading-none truncate">{op.name}</div>
                           </div>
-                          <div className="absolute top-1 right-1 w-1 h-1 md:w-1.5 md:h-1.5 rounded-full z-20" style={{ backgroundColor: op.color }} />
+                          
+                          {/* Corner Accent */}
+                          <div className={`absolute top-1 right-1 w-1 h-1 md:w-1.5 md:h-1.5 rounded-full z-20 ${isPreview ? 'animate-ping' : ''}`} style={{ backgroundColor: op.color }} />
+                          
                           {isSelected && (
-                            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/40">
+                            <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/50">
                               <div className="flex flex-col items-center gap-0.5 md:gap-1">
-                                <div className="text-[5px] md:text-[7px] font-black uppercase italic tracking-widest text-white bg-red-500 px-1 py-0.5 rotate-[-15deg]">Deployed</div>
+                                <div className={`text-[6px] md:text-[8px] font-black uppercase italic tracking-widest text-white px-2 py-0.5 rotate-[-15deg] shadow-lg ${isMySelection ? 'bg-green-600' : 'bg-red-500'}`}>
+                                  {isMySelection ? 'Confirmed' : 'Deployed'}
+                                </div>
                                 {selectingPlayer && (
-                                  <div className="text-[5px] md:text-[6px] font-bold text-zinc-300 uppercase tracking-widest bg-black/60 px-1 py-0.5 rounded truncate max-w-[90%]">
-                                    {selectingPlayer.name}
+                                  <div className="text-[5px] md:text-[6px] font-bold text-zinc-100 uppercase tracking-[0.2em] bg-black/80 px-1 py-0.5 rounded-sm truncate max-w-[90%] border border-zinc-700/50">
+                                    {isMySelection ? 'You' : selectingPlayer.name}
                                   </div>
                                 )}
                               </div>
@@ -3206,9 +3462,16 @@ const App: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex-1 text-left min-w-0">
-                        <div className="text-[5px] md:text-[8px] font-black text-orange-500 uppercase tracking-[0.2em] mb-0 truncate">{previewOperator.title}</div>
+                        <div className="text-[5px] md:text-[8px] font-black text-orange-500 uppercase tracking-[0.2em] mb-0 flex items-center gap-2">
+                          {previewOperator.title}
+                          <span className="text-zinc-600 px-1 border border-zinc-800 rounded bg-black/40 tracking-widest font-mono scale-[0.8]">{previewOperator.skill.name}</span>
+                        </div>
                         <div className="text-xs md:text-xl font-black italic uppercase tracking-tighter leading-tight truncate">{previewOperator.name}</div>
-                        <p className="text-zinc-400 text-[5px] md:text-[9px] leading-tight max-w-xs italic line-clamp-1 md:line-clamp-2">"Ready for deployment. Strategic objectives identified. Awaiting final confirmation, {profile.name}."</p>
+                        <p className="text-zinc-300 text-[5px] md:text-[9px] leading-tight max-w-xs italic line-clamp-2 md:line-clamp-none">"{previewOperator.description}"</p>
+                        <div className="flex items-center gap-1.5 mt-1 text-orange-400 font-mono text-[6px] md:text-[9px] bg-black/30 p-1 rounded inline-block">
+                          <Zap className="w-2.5 h-2.5 md:w-3 md:h-3" />
+                          <span className="font-black uppercase tracking-tighter text-[5px] md:text-[7px]">PASSIVE:</span> {previewOperator.skill.description}
+                        </div>
                       </div>
                       <div className="flex flex-col gap-1 w-20 md:w-32 shrink-0">
                         <button 
@@ -3321,6 +3584,10 @@ const App: React.FC = () => {
 
   return (
     <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans selection:bg-orange-500/30 overflow-hidden relative flex flex-col landscape:flex-row">
+      {/* Futuristic Grid Background */}
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-20" 
+             style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+        
       {/* Portrait Orientation Overlay */}
       <div className="fixed inset-0 z-[200] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
         <div className="w-24 h-24 mb-6 relative">
@@ -3685,17 +3952,17 @@ const App: React.FC = () => {
           <div className="absolute inset-0 opacity-5 pointer-events-none" 
                style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
         )}
-
         {/* Monopoly Board */}
-        <div 
-          className="relative z-10 shadow-2xl rounded-sm w-[490px] h-[490px] origin-center transition-transform duration-500 overflow-hidden"
-          style={{ 
-            backgroundImage: `url("${MAP_IMAGE_URL}")`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            transform: `scale(${boardScale})`
-          }}
-        >
+        <LayoutGroup>
+          <div 
+            className="relative z-10 shadow-2xl rounded-sm w-[490px] h-[490px] origin-center transition-transform duration-500 overflow-hidden"
+            style={{ 
+              backgroundImage: `url("${MAP_IMAGE_URL}")`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transform: `scale(${boardScale})`
+            }}
+          >
           {/* Top Row */}
           <div className="flex">
             {renderTile(tiles[20], 'corner')}
@@ -3849,6 +4116,7 @@ const App: React.FC = () => {
             {renderTile(tiles[10], 'corner')}
           </div>
         </div>
+        </LayoutGroup>
       </div>
 
       {/* Mobile Action Bar */}

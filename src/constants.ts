@@ -350,6 +350,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Amiya',
     dormImage: '/Resources/Buildings/Dorm/Amiya Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Amiya Command Center.png',
+    description: 'The young leader of Rhodes Island. Her "Spirit Absorption" enables her to extract more resources from every mission milestone.',
     skill: { id: 'amiya_passive', name: 'Spirit Absorption', description: 'Gain 10% extra Orundum when passing GO.', type: 'PASSIVE' }
   },
   { 
@@ -361,6 +362,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Ch\'en',
     dormImage: '/Resources/Buildings/Dorm/Ch\'en Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Ch\'en Command Center.png',
+    description: 'Superintendent of the Lungmen Guard Department. With "Chi-Shadowless," she applies relentless pressure, occasionally moving much faster than expected.',
     skill: { id: 'chen_passive', name: 'Chi-Shadowless', description: '15% chance to roll an extra die.', type: 'PASSIVE' }
   },
   { 
@@ -372,6 +374,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Hoshiguma',
     dormImage: '/Resources/Buildings/Dorm/Hoshiguma Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Hoshiguma Command Center.png',
+    description: 'A titan of defense. Her "Thorns" passive ensures that anyone attempting to seize control of her sectors pays a heavy price for their intrusion.',
     skill: { id: 'hoshiguma_passive', name: 'Thorns', description: 'When someone lands on your property, they pay 10% extra.', type: 'PASSIVE' }
   },
   { 
@@ -383,6 +386,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Lappland',
     dormImage: '/Resources/Buildings/Dorm/Lappland Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Lappland Command Center.png',
+    description: 'A chaotic force on the battlefield. Her "Sundial" skill allows her to bypass legal restrictions and avoid first-time detention penalties.',
     skill: { id: 'lappland_passive', name: 'Sundial', description: 'Immune to the first "Sanity Depleted" (Jail) event.', type: 'PASSIVE' }
   },
   { 
@@ -394,6 +398,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Texas',
     dormImage: '/Resources/Buildings/Dorm/Texas Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Texas Command Center.png',
+    description: 'Reliable and efficient. As a master of "Tactical Delivery," she starts the mission with a significant resource advantage.',
     skill: { id: 'texas_passive', name: 'Tactical Delivery', description: 'Start the game with O1,000 extra.', type: 'PASSIVE' }
   },
   { 
@@ -405,6 +410,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Mostima',
     dormImage: '/Resources/Buildings/Dorm/Mostima Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Mostima Command Center.png',
+    description: 'A mysterious traveler of time. Her "Time Lock" forces opponents to make decisions under intense temporal pressure.',
     skill: { id: 'mostima_passive', name: 'Time Lock', description: 'Opponents\' turn timers are reduced by 5 seconds.', type: 'PASSIVE' }
   },
   { 
@@ -416,6 +422,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Pramanix',
     dormImage: '/Resources/Buildings/Dorm/Pramanix Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Pramanix Command Center.png',
+    description: 'The Saintess of the snow peaks. Her "Natural Selection" divine grace significantly reduces the burden of international trade taxes.',
     skill: { id: 'pramanix_passive', name: 'Natural Selection', description: 'Tax payments are reduced by 50%.', type: 'PASSIVE' }
   },
   { 
@@ -427,6 +434,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Silverash',
     dormImage: '/Resources/Buildings/Dorm/Silverash Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/SIlverash Command Center.png',
+    description: 'The chairman of Karlan Trade. His "Eagle Eyes" grant him unmatched foresight, allowing him to acquire sectors at a reduced cost.',
     skill: { id: 'silverash_passive', name: 'Eagle Eyes', description: 'Properties you land on cost 10% less to buy.', type: 'PASSIVE' }
   },
   { 
@@ -438,6 +446,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Kal\'tsit',
     dormImage: '/Resources/Buildings/Dorm/Kal\'tsit Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Kal\'tsit Command Center.png',
+    description: 'The bedrock of Rhodes Island. Utilizing "Mon3tr\'s Protection," she demonstrates extreme resilience by occasionally negating operational costs.',
     skill: { id: 'kaltsit_passive', name: 'Mon3tr\'s Protection', description: '50% chance to avoid paying rent once every 5 turns.', type: 'PASSIVE' }
   },
   { 
@@ -449,6 +458,7 @@ export const OPERATORS: Operator[] = [
     spriteBaseName: 'Exusia',
     dormImage: '/Resources/Buildings/Dorm/Exusia Dorm.png',
     commandCenterImage: '/Resources/Buildings/Command Center/Exusia Command Center.png',
+    description: 'Always aiming for the "Apple Pie!" She celebrates every successful tactical maneuver with a burst of resource generation.',
     skill: { id: 'exusiai_passive', name: 'Apple Pie!', description: 'Gain O200 every time you roll doubles.', type: 'PASSIVE' }
   }
 ];
