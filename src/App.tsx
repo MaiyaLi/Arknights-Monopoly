@@ -630,18 +630,17 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Render Backend URL fallback (hardcoded for reliability)
-    const DEFAULT_BACKEND_URL = 'https://arknights-monopoly.onrender.com';
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || DEFAULT_BACKEND_URL;
+    // Phase III: Force-Hardlink to Render (Bypass environment variables)
+    const BACKEND_URL = 'https://arknights-monopoly.onrender.com';
     
-    addToLog(`Mission Control: Initializing tactical link with ${BACKEND_URL}...`);
+    addToLog(`Mission Control: Attempting tactical deep-link to ${BACKEND_URL}...`);
     
     const newSocket = io(BACKEND_URL, { 
-      transports: ['polling', 'websocket'], // Allow polling for initial handshake
-      reconnectionAttempts: 8,
-      timeout: 30000, // 30s timeout for Render wake-up
+      transports: ['polling', 'websocket'], // Default to polling first then upgrade to websocket
+      reconnectionAttempts: 10,
+      timeout: 60000, // 60s timeout for Render boot
       autoConnect: true,
-      withCredentials: true // Match server-side credentials: true
+      withCredentials: true
     });
     setSocket(newSocket);
 
@@ -653,9 +652,12 @@ const App: React.FC = () => {
 
     const onConnectError = (err: any) => {
       setIsConnected(false);
-      setConnectError(`Tactical Link Error: ${err.message || 'Signal Refused'}`);
+      // Detailed error reporting for diagnosing domain blocks
+      const errMsg = err.description ? `${err.message} (${err.description})` : err.message;
+      setConnectError(`Tactical Link Error: ${errMsg || 'Signal Refused'}`);
       setIsJoining(false); 
-      addToLog(`Tactical link error: ${err.message || 'Connection Interrupted'}`);
+      addToLog(`Tactical link error: ${errMsg || 'Connection Interrupted'}`);
+      console.error("Socket connection error details:", err);
     };
 
     const onDisconnect = () => {

@@ -15,7 +15,14 @@ async function startServer() {
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
-      origin: ["https://arknights-monopoly.web.app", "https://arknights-monopoly.firebaseapp.com", "http://localhost:3011", "http://localhost:5173"],
+      origin: (origin, callback) => {
+        // Phase III: Dynamic Mirroring for Firebase subdomains
+        if (!origin || (origin.includes('.web.app') || origin.includes('.firebaseapp.com') || origin.includes('localhost'))) {
+          callback(null, true);
+        } else {
+          callback(null, false);
+        }
+      },
       methods: ["GET", "POST"],
       credentials: true
     }
