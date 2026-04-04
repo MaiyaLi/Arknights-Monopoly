@@ -15,7 +15,7 @@ async function startServer() {
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
     cors: {
-      origin: "*", // Global CORS for debugging connectivity
+      origin: ["https://arknights-monopoly.web.app", "https://arknights-monopoly.firebaseapp.com", "http://localhost:3011", "http://localhost:5173"],
       methods: ["GET", "POST"],
       credentials: true
     }

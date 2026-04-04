@@ -639,27 +639,33 @@ const App: React.FC = () => {
     const newSocket = io(BACKEND_URL, { 
       transports: ['polling', 'websocket'], // Allow polling for initial handshake
       reconnectionAttempts: 8,
-      timeout: 30000 // 30s timeout for Render wake-up
+      timeout: 30000, // 30s timeout for Render wake-up
+      autoConnect: true,
+      withCredentials: true // Match server-side credentials: true
     });
     setSocket(newSocket);
 
-    newSocket.on('connect', () => {
+    const onConnect = () => {
       setIsConnected(true);
       setConnectError(null);
       addToLog("Tactical link established: Online.");
-    });
+    };
 
-    newSocket.on('connect_error', (err) => {
+    const onConnectError = (err: any) => {
       setIsConnected(false);
       setConnectError(`Tactical Link Error: ${err.message || 'Signal Refused'}`);
-      setIsJoining(false); // Reset joining spinner if it fails to connect
+      setIsJoining(false); 
       addToLog(`Tactical link error: ${err.message || 'Connection Interrupted'}`);
-    });
+    };
 
-    newSocket.on('disconnect', () => {
+    const onDisconnect = () => {
       setIsConnected(false);
       addToLog("Tactical link lost: Offline.");
-    });
+    };
+
+    newSocket.on('connect', onConnect);
+    newSocket.on('connect_error', onConnectError);
+    newSocket.on('disconnect', onDisconnect);
 
     newSocket.on('joined-room', ({ roomId, status, isHost, players, selectedOperators, gameState: syncedGameState }) => {
       isNetworkUpdate.current = true;
@@ -3187,6 +3193,19 @@ const App: React.FC = () => {
                   <span className={`text-[7px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
                     {isConnected ? 'Link Active: ONLINE' : 'Link Lost: OFFLINE'}
                   </span>
+                  {!isConnected && (
+                    <button 
+                      onClick={() => {
+                        if (socket) {
+                          addToLog("Mission Control: Re-syncing signal...");
+                          socket.connect();
+                        }
+                      }}
+                      className="ml-1 text-[7px] hover:text-white underline decoration-dashed"
+                    >
+                      SYNC SIGNAL
+                    </button>
+                  )}
                 </div>
               </div>
 
