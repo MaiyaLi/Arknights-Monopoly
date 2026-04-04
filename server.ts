@@ -415,18 +415,15 @@ async function startServer() {
         }
         const playerIndex = room.players.findIndex(p => p.id === socket.id);
         if (playerIndex !== -1) {
-          const prevOp = room.players[playerIndex].operator;
-          const oldOp = typeof prevOp === 'string' 
-            ? prevOp 
-            : prevOp ? prevOp.name : null;
-          if (oldOp) {
-            room.selectedOperators = room.selectedOperators.filter(o => o !== oldOp);
-          }
           room.players[playerIndex] = { ...player, id: socket.id };
         } else {
           room.players.push({ ...player, id: socket.id });
         }
-        if (!room.selectedOperators.includes(opName)) room.selectedOperators.push(opName);
+        
+        // Regenerate selectedOperators exactly from current player list
+        room.selectedOperators = room.players
+          .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
+          .filter(Boolean);
 
         io.to(roomId).emit('operator-selected', { 
           operator: opName, playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators
@@ -507,16 +504,22 @@ async function startServer() {
       socketToRoom.delete(socket.id);
       const room = rooms.get(roomId);
       if (room) {
-        const player = room.players.find(p => p.id === socket.id);
-        if (player) {
-          room.selectedOperators = room.selectedOperators.filter(o => o !== player.operator);
-          room.players = room.players.filter(p => p.id !== socket.id);
-        }
+        room.players = room.players.filter(p => p.id !== socket.id);
+        
+        // Regenerate selectedOperators accurately from remaining players
+        room.selectedOperators = room.players
+          .map(p => typeof p.operator === 'string' ? p.operator : (p.operator?.name || null))
+          .filter(Boolean);
+
         if (room.players.length === 0) {
           if (room.turnTimer) clearInterval(room.turnTimer);
           rooms.delete(roomId);
         } else {
-          io.to(roomId).emit('player-left', { playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators });
+          io.to(roomId).emit('player-left', { 
+            playerId: socket.id, 
+            players: room.players, 
+            selectedOperators: room.selectedOperators 
+          });
         }
       }
     });
@@ -535,16 +538,22 @@ async function startServer() {
       if (roomId) {
         const room = rooms.get(roomId);
         if (room) {
-          const player = room.players.find(p => p.id === socket.id);
-          if (player) {
-            room.selectedOperators = room.selectedOperators.filter(o => o !== player.operator);
-            room.players = room.players.filter(p => p.id !== socket.id);
-          }
+          room.players = room.players.filter(p => p.id !== socket.id);
+          
+          // Regenerate selectedOperators accurately
+          room.selectedOperators = room.players
+            .map(p => typeof p.operator === 'string' ? p.operator : (p.operator?.name || null))
+            .filter(Boolean);
+
           if (room.players.length === 0) {
             if (room.turnTimer) clearInterval(room.turnTimer);
             rooms.delete(roomId);
           } else {
-            io.to(roomId).emit('player-left', { playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators });
+            io.to(roomId).emit('player-left', { 
+              playerId: socket.id, 
+              players: room.players, 
+              selectedOperators: room.selectedOperators 
+            });
           }
         }
         socketToRoom.delete(socket.id);

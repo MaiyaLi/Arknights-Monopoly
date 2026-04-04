@@ -636,9 +636,11 @@ const App: React.FC = () => {
     addToLog(`Mission Control: Attempting tactical deep-link to ${BACKEND_URL}...`);
     
     const newSocket = io(BACKEND_URL, { 
-      transports: ['polling', 'websocket'], // Default to polling first then upgrade to websocket
-      reconnectionAttempts: 10,
-      timeout: 60000, // 60s timeout for Render boot
+      transports: ['websocket', 'polling'], // Prioritize websocket for stability
+      reconnectionAttempts: 20, // Increase attempts for Render cold starts
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 90000, // 90s timeout for Render cold boot
       autoConnect: true,
       withCredentials: true
     });
@@ -3328,10 +3330,29 @@ const App: React.FC = () => {
               className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden p-1 md:p-0"
             >
               <div className="flex items-center justify-between border-b border-zinc-800 pb-1 gap-2 shrink-0">
-                <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0 flex items-center gap-2">
-                  Select <span className="text-orange-500">Operator</span>
-                  <span className="text-[7px] text-zinc-700 font-mono tracking-tighter px-1 border border-zinc-800/50 rounded bg-black/20">BUILD: V5-SYNC-PATCH</span>
-                </h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0 flex items-center gap-2">
+                    Select <span className="text-orange-500">Operator</span>
+                    <span className="text-[7px] text-zinc-700 font-mono tracking-tighter px-1 border border-zinc-800/50 rounded bg-black/20">V7-STABLE</span>
+                  </h2>
+                  
+                  {/* Tactical Link Indicator */}
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-zinc-900/50 border border-zinc-800/50">
+                    <motion.div 
+                      animate={{ 
+                        opacity: isConnected ? [0.4, 1, 0.4] : 1,
+                        scale: isConnected ? [0.8, 1.1, 0.8] : 1 
+                      }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                      className={`w-2 h-2 rounded-full shadow-[0_0_8px] ${
+                        isConnected ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'
+                      }`}
+                    />
+                    <span className={`text-[8px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500/70' : 'text-red-500/70'}`}>
+                      {isConnected ? 'Link: Stable' : 'Link: Lost'}
+                    </span>
+                  </div>
+                </div>
                 
                 {gameState.roomId && (
                   <div className="flex-1 flex items-center justify-center gap-4 px-4 overflow-hidden">
@@ -3452,7 +3473,12 @@ const App: React.FC = () => {
                 <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
                   <div className="grid grid-cols-5 gap-1 md:gap-2 pb-2">
                     {OPERATORS.map((op) => {
-                      const isSelected = selectedOperators.includes(op.name);
+                      // Robust check: Derived from list + players array for absolute sync
+                      const isSelectedByPlayer = gameState.players.some(p => {
+                        const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
+                        return pOpName === op.name;
+                      });
+                      const isSelected = selectedOperators.includes(op.name) || isSelectedByPlayer;
                       const isPreview = previewOperator?.name === op.name;
                       // Improved player identification in the grid
                       const selectingPlayer = gameState.players.find(p => {
