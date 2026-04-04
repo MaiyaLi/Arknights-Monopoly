@@ -941,12 +941,12 @@ const App: React.FC = () => {
         message: `Welcome, ${selectedOp.name}. Roll to start your mission.`
       }));
     } else if (socket && gameState.roomId) {
-      const player: Player = {
+      const player = {
+        ...profile,
         id: socket.id!,
-        name: profile.name,
-        email: profile.email,
         operator: selectedOp,
-        avatar: AVATARS.find(a => a.id === profile.avatarId) || AVATARS[0],
+        avatarId: profile.avatarId,
+        status: 'READY',
         position: 0,
         turnCount: 0,
         orundum: STARTING_ORUNDUM + (selectedOp.name === 'Texas' ? 1000 : 0),
@@ -963,6 +963,11 @@ const App: React.FC = () => {
       
       socket.emit('select-operator', { roomId: gameState.roomId, operator: selectedOp, player });
       addToLog(`Confirmed deployment: ${selectedOp.name}. Awaiting command...`);
+      // Update local state immediately for better responsiveness
+      setGameState(prev => ({
+        ...prev,
+        players: prev.players.map(p => p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p)
+      }));
     }
   };
 
@@ -3330,16 +3335,36 @@ const App: React.FC = () => {
                       <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none hidden sm:block">Operators</div>
                       <div className="flex -space-x-1.5 shrink-0">
                         {Array.isArray(gameState.players) && gameState.players.length > 0 ? (
-                          gameState.players.map(p => (
-                            <div key={p.id} className="w-5 h-5 md:w-7 md:h-7 rounded-full border-2 border-zinc-900 overflow-hidden bg-zinc-800 ring-1 ring-zinc-700" title={p.name}>
-                              <img 
-                                src={p?.avatar?.url || '/Resources/Characters/Icon/Alive/Amiya Alive.png'} 
-                                alt={p.name} 
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                            </div>
-                          ))
+                          gameState.players.map(p => {
+                            const playerAvatar = AVATARS.find(a => a.id === p.avatarId) || AVATARS[0];
+                            const isReady = p.status === 'READY' || p.operator;
+                            const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
+                            const selectedOp = pOpName ? OPERATORS.find(o => o.name === pOpName) : null;
+                            
+                            return (
+                              <div key={p.id} className="flex flex-col items-center gap-0.5">
+                                <div className={`relative w-6 h-6 md:w-8 md:h-8 rounded-full border-2 overflow-hidden transition-all ${isReady ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'border-zinc-800 bg-zinc-900'}`} title={p.name}>
+                                  <img 
+                                    src={playerAvatar.url} 
+                                    alt={p.name} 
+                                    className={`w-full h-full object-cover ${isReady ? 'brightness-110' : 'grayscale'}`}
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  {isReady && (
+                                    <div className="absolute inset-0 bg-green-500/10 flex items-center justify-center">
+                                      <CheckCircle2 className="w-3 h-3 md:w-4 md:h-4 text-green-500 drop-shadow-md" />
+                                    </div>
+                                  )}
+                                  {selectedOp && (
+                                    <div className="absolute -bottom-1 -right-1 w-3 h-3 md:w-4 md:h-4 rounded-full border border-black overflow-hidden z-10 bg-zinc-900 shadow-sm">
+                                      <img src={selectedOp.portrait} className="w-full h-full object-cover" alt="Op" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-[5px] md:text-[6px] font-black uppercase text-zinc-500 truncate max-w-[32px] md:max-w-[40px] text-center">{p.name}</div>
+                              </div>
+                            );
+                          })
                         ) : (
                           <div className="text-[10px] text-zinc-500 font-mono italic">Sector scanning...</div>
                         )}
