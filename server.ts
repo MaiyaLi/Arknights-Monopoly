@@ -580,7 +580,7 @@ async function startServer() {
       }
     });
 
-    socket.on('leave-room', (roomId) => {
+    socket.on('leave-room', async (roomId) => {
       socket.leave(roomId);
       socketToRoom.delete(socket.id);
       const room = rooms.get(roomId);
