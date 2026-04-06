@@ -138,6 +138,37 @@ async function startServer() {
   let matchmakingCountdown = 10;
 
   const TURN_TIME_LIMIT = 45;
+  
+  // --- Firestore Helpers ---
+  async function saveLobbyToFirestore(roomId: string) {
+    const room = rooms.get(roomId);
+    if (!room || !db) return;
+    
+    try {
+      await db.collection('lobbies').doc(roomId).set({
+        roomId,
+        players: room.players,
+        status: room.status,
+        selectedOperators: room.selectedOperators,
+        hostId: room.hostId,
+        hostName: room.hostName,
+        hostEmail: room.hostEmail,
+        lastActivity: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      console.error(`[Firestore Sync] Failed to save lobby ${roomId}:`, e);
+    }
+  }
+
+  async function deleteLobbyFromFirestore(roomId: string) {
+    if (!db) return;
+    try {
+      await db.collection('lobbies').doc(roomId).delete();
+      console.log(`[Firestore Sync] Deleted lobby ${roomId}.`);
+    } catch (e) {
+      console.error(`[Firestore Sync] Failed to delete lobby ${roomId}:`, e);
+    }
+  }
 
   // --- Helper Functions ---
 
@@ -253,7 +284,7 @@ async function startServer() {
   io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    socket.on('host-game', ({ roomId, hostName, hostEmail, avatarId }) => {
+    socket.on('host-game', async ({ roomId, hostName, hostEmail, avatarId }) => {
       socket.join(roomId);
       socketToRoom.set(socket.id, roomId);
       
@@ -279,6 +310,8 @@ async function startServer() {
         hostEmail // Store host email for re-connection
       });
 
+      await saveLobbyToFirestore(roomId);
+
       socket.emit('joined-room', { 
         roomId, 
         status: 'LOBBY', 
@@ -286,7 +319,7 @@ async function startServer() {
         players: [hostPlayer],
         selectedOperators: []
       });
-      console.log(`Manual room created: ${roomId} by ${socket.id}`);
+      console.log(`Manual room created: ${roomId} by ${socket.id} (Stored in Firestore)`);
     });
 
     socket.on('identify-user', async ({ email, name, avatarId }) => {
@@ -318,9 +351,36 @@ async function startServer() {
       console.log(`User identified: ${name} (${email})`);
     });
 
-    socket.on('join-game', ({ roomId: rawRoomId, playerName, playerEmail, avatarId }) => {
+    socket.on('join-game', async ({ roomId: rawRoomId, playerName, playerEmail, avatarId }) => {
       const roomId = (rawRoomId || '').toString().trim().toUpperCase();
-      const room = rooms.get(roomId);
+      let room = rooms.get(roomId);
+      
+      // If room is missing from memory, attempt to re-hydrate from Firestore
+      if (!room && db) {
+        console.log(`[Sector Recovery] Room ${roomId} missing from memory, scanning Firestore...`);
+        try {
+          const doc = await db.collection('lobbies').doc(roomId).get();
+          if (doc.exists) {
+            const data = doc.data() as any;
+            room = {
+              players: data.players || [],
+              gameState: null,
+              selectedOperators: data.selectedOperators || [],
+              remainingTime: TURN_TIME_LIMIT,
+              chatMessages: [],
+              status: data.status || 'LOBBY',
+              hostId: data.hostId,
+              hostName: data.hostName,
+              hostEmail: data.hostEmail
+            };
+            rooms.set(roomId, room);
+            console.log(`[Sector Recovery] Room ${roomId} stabilized from secure database.`);
+          }
+        } catch (e) {
+          console.error(`[Sector Recovery] Failed to scan sector ${roomId}:`, e);
+        }
+      }
+
       if (room) {
         if (room.players.length >= 4 && !room.players.find(p => p.email === playerEmail)) {
           socket.emit('error', 'Room is full (max 4 players)');
@@ -345,6 +405,9 @@ async function startServer() {
             status: 'WAITING'
           });
         }
+
+        // Update Firestore with the new player list
+        await saveLobbyToFirestore(roomId);
 
         socket.emit('joined-room', { 
           roomId, 
@@ -401,23 +464,33 @@ async function startServer() {
       }
     });
 
-    socket.on('select-operator', ({ roomId, operator, player }) => {
+    socket.on('select-operator', async ({ roomId, operator, player }) => {
       const room = rooms.get(roomId);
       if (room) {
-        const opName = typeof operator === 'string' ? operator : operator.name;
+        const opName = typeof operator === 'string' ? operator : operator?.name;
+        if (!opName) return; // Ignore invalid selections
+
         const alreadyTaken = room.players.find(p => {
-          const pOpName = typeof p.operator === 'string' ? p.operator : p.operator.name;
+          const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
           return pOpName === opName && p.id !== socket.id;
         });
+        
         if (alreadyTaken) {
           socket.emit('error', 'Operator already selected by another player');
           return;
         }
+
         const playerIndex = room.players.findIndex(p => p.id === socket.id);
         if (playerIndex !== -1) {
-          room.players[playerIndex] = { ...player, id: socket.id };
+          // IMPORTANT: Merge with existing server-side player data to preserve fields like isHost, avatarId, etc.
+          room.players[playerIndex] = { 
+            ...room.players[playerIndex], 
+            ...player, 
+            id: socket.id,
+            status: 'READY' 
+          };
         } else {
-          room.players.push({ ...player, id: socket.id });
+          room.players.push({ ...player, id: socket.id, status: 'READY' });
         }
         
         // Regenerate selectedOperators exactly from current player list
@@ -429,15 +502,22 @@ async function startServer() {
           operator: opName, playerId: socket.id, players: room.players, selectedOperators: room.selectedOperators
         });
 
+        // Sync to Firestore
+        await saveLobbyToFirestore(roomId);
+
+        // Automatic start for matchmaking rooms when all expected players have selected
         if (room.status === 'LOBBY' && room.expectedPlayerCount && room.selectedOperators.length === room.expectedPlayerCount) {
-          room.status = 'IN_PROGRESS';
-          io.to(roomId).emit('mission-start');
-          startTurnTimer(roomId);
+          const allReady = room.players.length >= room.expectedPlayerCount && room.players.every(p => p.operator !== null);
+          if (allReady) {
+            room.status = 'IN_PROGRESS';
+            io.to(roomId).emit('mission-start');
+            startTurnTimer(roomId);
+          }
         }
       }
     });
 
-    socket.on('start-game', (roomId) => {
+    socket.on('start-game', async (roomId) => {
       const room = rooms.get(roomId);
       if (room && room.hostId === socket.id) {
         if (room.players.length < 2) { 
@@ -452,6 +532,7 @@ async function startServer() {
         }
 
         room.status = 'IN_PROGRESS';
+        await saveLobbyToFirestore(roomId); // Sync final lobby status before starting
         io.to(roomId).emit('mission-start');
         startTurnTimer(roomId);
       }
@@ -505,26 +586,29 @@ async function startServer() {
       const room = rooms.get(roomId);
       if (room) {
         room.players = room.players.filter(p => p.id !== socket.id);
-        
-        // Regenerate selectedOperators accurately from remaining players
         room.selectedOperators = room.players
-          .map(p => typeof p.operator === 'string' ? p.operator : (p.operator?.name || null))
+          .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
           .filter(Boolean);
-
+        
         if (room.players.length === 0) {
           if (room.turnTimer) clearInterval(room.turnTimer);
           rooms.delete(roomId);
+          await deleteLobbyFromFirestore(roomId);
         } else {
+          await saveLobbyToFirestore(roomId);
           io.to(roomId).emit('player-left', { 
             playerId: socket.id, 
             players: room.players, 
             selectedOperators: room.selectedOperators 
           });
         }
+        socket.leave(roomId);
+        socketToRoom.delete(socket.id);
       }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
+      console.log('User disconnected:', socket.id);
       const qIdx = queue.indexOf(socket.id);
       if (qIdx !== -1) {
         queue.splice(qIdx, 1);
@@ -539,16 +623,16 @@ async function startServer() {
         const room = rooms.get(roomId);
         if (room) {
           room.players = room.players.filter(p => p.id !== socket.id);
-          
-          // Regenerate selectedOperators accurately
           room.selectedOperators = room.players
-            .map(p => typeof p.operator === 'string' ? p.operator : (p.operator?.name || null))
+            .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
             .filter(Boolean);
 
           if (room.players.length === 0) {
             if (room.turnTimer) clearInterval(room.turnTimer);
             rooms.delete(roomId);
+            await deleteLobbyFromFirestore(roomId);
           } else {
+            await saveLobbyToFirestore(roomId);
             io.to(roomId).emit('player-left', { 
               playerId: socket.id, 
               players: room.players, 
@@ -561,6 +645,70 @@ async function startServer() {
       socketToEmail.delete(socket.id);
     });
   });
+
+  // Firestore Matchmaking Monitor
+  if (db) {
+    console.log("Initializing Firestore Matchmaking Monitor...");
+    db.collection('matchmaking_queue').orderBy('joinedAt', 'asc').onSnapshot(async (snapshot) => {
+      const players = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      
+      if (players.length >= 4) {
+        const selectedPlayers = players.slice(0, 4);
+        const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        
+        console.log(`[Sector Matchmaking] Forming sector ${roomId} from queue signal...`);
+        
+        const lobbyData = {
+          roomId,
+          status: 'selecting',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          players: selectedPlayers.map((p, idx) => ({
+            id: p.socketId || p.id,
+            name: p.name || 'Doctor',
+            email: p.email || '',
+            avatarId: p.avatarId || 'avatar_doctor',
+            isHost: idx === 0,
+            operator: null,
+            status: 'WAITING'
+          })),
+          selections: {},
+          selectedOperators: []
+        };
+        
+        try {
+          // Create the lobby doc in Firestore
+          await db.collection('lobbies').doc(roomId).set(lobbyData);
+          
+          // Remove players from queue
+          const batch = db.batch();
+          selectedPlayers.forEach(p => {
+            batch.delete(db.collection('matchmaking_queue').doc(p.id));
+          });
+          await batch.commit();
+          
+          // Emit to those specific sockets via Socket.IO for the initial navigation trigger
+          selectedPlayers.forEach(p => {
+            if (p.socketId) {
+              const s = io.sockets.sockets.get(p.socketId);
+              if (s) {
+                s.join(roomId);
+                s.emit('joined-room', { 
+                  roomId, 
+                  status: 'LOBBY', 
+                  isHost: p.id === selectedPlayers[0].id,
+                  players: lobbyData.players,
+                  selectedOperators: []
+                });
+                console.log(`[Sector Matchmaking] Pushed Doctor ${p.name} to sector ${roomId}.`);
+              }
+            }
+          });
+        } catch (e) {
+          console.error("[Matchmaking Error] Failed to stabilize sector:", e);
+        }
+      }
+    });
+  }
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
@@ -577,3 +725,4 @@ async function startServer() {
 }
 
 startServer();
+

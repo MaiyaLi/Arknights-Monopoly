@@ -46,6 +46,20 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
+import { db } from './firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  runTransaction, 
+  serverTimestamp, 
+  query, 
+  where, 
+  getDocs, 
+  deleteDoc,
+  updateDoc
+} from 'firebase/firestore';
 import { Player, Tile, GameState, TileType, EventCard, TradeOffer, GameMode } from './types';
 import { TILES, STARTING_ORUNDUM, GO_REWARD, TAX_AMOUNT, JAIL_FEE, PLAYER_COLORS, PLAYER_NAMES, BOARD_SIZE, LGD_CARDS, INTEL_CARDS, OPERATORS, AVATARS } from './constants';
 
@@ -403,6 +417,8 @@ const App: React.FC = () => {
   const [isQueuing, setIsQueuing] = useState(false);
   const [queuePosition, setQueuePosition] = useState(0);
   const [queueTotal, setQueueTotal] = useState(0);
+  const [matchmakingCountdown, setMatchmakingCountdown] = useState<number | null>(null);
+  const [lobbyDoc, setLobbyDoc] = useState<any>(null);
 
   // Asset Preloading Logic
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -470,12 +486,34 @@ const App: React.FC = () => {
 
   const isNetworkUpdate = useRef(false);
 
-  // Reset network update flag after each render cycle to allow subsequent local actions to sync
+  // Helper to ensure player objects are fully hydrated with avatar objects and correct structure after network sync
+  const hydratePlayers = useCallback((playersList: any[]) => {
+    if (!playersList || !Array.isArray(playersList)) return [];
+    return playersList.map(p => {
+      // Find operator if it's just a string or missing title/assets
+      let operatorObj = p.operator;
+      if (typeof p.operator === 'string') {
+        operatorObj = OPERATORS.find(op => op.name === p.operator) || null;
+      }
+      
+      return {
+        ...p, 
+        avatar: p.avatar || AVATARS.find(a => a.id === p.avatarId) || AVATARS[0],
+        operator: operatorObj,
+        status: p.status || (operatorObj ? 'READY' : 'WAITING')
+      };
+    });
+  }, []);
+
+  // Reset network update flag after each render cycle
   useEffect(() => {
     if (isNetworkUpdate.current) {
-      isNetworkUpdate.current = false;
+      const timer = setTimeout(() => {
+        isNetworkUpdate.current = false;
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [gameState]);
+  }, [gameState.players, gameState.gameStarted, gameState.roomId]);
 
   const playSound = useCallback((soundUrl: string) => {
     if (!settings.soundEnabled) return;
@@ -693,7 +731,7 @@ const App: React.FC = () => {
         
         // Sync players if provided
         if (players && Array.isArray(players)) {
-          newState.players = players;
+          newState.players = hydratePlayers(players);
         }
         
         if (syncedGameState && typeof syncedGameState === 'object') {
@@ -702,7 +740,7 @@ const App: React.FC = () => {
             Object.assign(newState, sharedState);
           }
           if (_ps && Array.isArray(_ps) && _ps.length > 0) {
-            newState.players = _ps;
+            newState.players = hydratePlayers(_ps);
           }
         }
         
@@ -763,7 +801,7 @@ const App: React.FC = () => {
       // Update our local players array and selected operators so everyone stays in sync
       if (players && Array.isArray(players)) {
         isNetworkUpdate.current = true;
-        setGameState(prev => ({ ...prev, players }));
+        setGameState(prev => ({ ...prev, players: hydratePlayers(players) }));
       }
       
       if (selectedOperators && Array.isArray(selectedOperators)) {
@@ -774,7 +812,7 @@ const App: React.FC = () => {
     newSocket.on('player-left', ({ playerId, players, selectedOperators }) => {
       isNetworkUpdate.current = true;
       setSelectedOperators(selectedOperators);
-      setGameState(prev => ({ ...prev, players }));
+      setGameState(prev => ({ ...prev, players: hydratePlayers(players) }));
       addToLog(`A Doctor has disconnected from the mission.`);
     });
 
@@ -789,7 +827,7 @@ const App: React.FC = () => {
     newSocket.on('operator-selected', ({ operator, playerId, players, selectedOperators }) => {
       isNetworkUpdate.current = true;
       setSelectedOperators(selectedOperators);
-      setGameState(prev => ({ ...prev, players }));
+      setGameState(prev => ({ ...prev, players: hydratePlayers(players) }));
     });
 
     newSocket.on('game-state-updated', (newState) => {
@@ -885,6 +923,71 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Firestore Lobby Listener
+  useEffect(() => {
+    if (!gameState.roomId || gameState.gameMode === 'SINGLEPLAYER') return;
+
+    const lobbyRef = doc(db, 'lobbies', gameState.roomId);
+    const unsubscribe = onSnapshot(lobbyRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setLobbyDoc(data);
+        
+        // Sync players from Firestore to state
+        if (data.players && Array.isArray(data.players)) {
+          isNetworkUpdate.current = true;
+          setGameState(prev => ({ 
+            ...prev, 
+            players: data.players,
+            // If lobby status is active, ensure gameStarted is true
+            gameStarted: data.status === 'active' || prev.gameStarted
+          }));
+        }
+
+        // Sync selected operators
+        if (data.selectedOperators) {
+          setSelectedOperators(data.selectedOperators);
+        }
+
+        // Handle auto-start countdown
+        if (data.status === 'selecting' && data.selectedOperators?.length === 4) {
+          if (matchmakingCountdown === null) {
+            setMatchmakingCountdown(5);
+          }
+        } else {
+          setMatchmakingCountdown(null);
+        }
+
+        // Handle transition to active
+        if (data.status === 'active' && !gameState.gameStarted) {
+          setGameState(prev => ({ ...prev, gameStarted: true }));
+          setShowCharacterSelect(false);
+          addToLog("Mission START! All operators deploy.");
+          playSound(SOUNDS.GO);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [gameState.roomId, gameState.gameMode, gameState.gameStarted]);
+
+  // Countdown effect
+  useEffect(() => {
+    if (matchmakingCountdown === null) return;
+    if (matchmakingCountdown <= 0) {
+      if (gameState.isHost && gameState.roomId) {
+        updateDoc(doc(db, 'lobbies', gameState.roomId), { status: 'active' });
+      }
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setMatchmakingCountdown(prev => (prev !== null ? prev - 1 : null));
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [matchmakingCountdown, gameState.isHost, gameState.roomId]);
+
   const startGame = (selectedOp: any) => {
     setPreviewOperator(null);
     const playerAvatar = AVATARS.find(a => a.id === profile.avatarId) || AVATARS[0];
@@ -969,11 +1072,42 @@ const App: React.FC = () => {
       
       socket.emit('select-operator', { roomId: gameState.roomId, operator: selectedOp, player });
       addToLog(`Confirmed deployment: ${selectedOp.name}. Awaiting command...`);
+      
       // Update local state immediately for better responsiveness
       setGameState(prev => ({
         ...prev,
         players: prev.players.map(p => p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p)
       }));
+
+      // SYNC TO FIRESTORE via Transaction to prevent double-picking
+      const lobbyRef = doc(db, 'lobbies', gameState.roomId);
+      runTransaction(db, async (transaction) => {
+        const lobbySnap = await transaction.get(lobbyRef);
+        if (!lobbySnap.exists()) return;
+
+        const data = lobbySnap.data();
+        const selections = data.selections || {};
+        const selectedOps = data.selectedOperators || [];
+
+        // Check if operator already taken
+        if (selections[selectedOp.name]) {
+          addToLog(`Error: ${selectedOp.name} has already been claimed by another Doctor.`);
+          return;
+        }
+
+        // Update players array
+        const updatedPlayers = (data.players || []).map((p: any) => 
+          p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p
+        );
+
+        transaction.update(lobbyRef, {
+          players: updatedPlayers,
+          [`selections.${selectedOp.name}`]: socket.id,
+          selectedOperators: [...selectedOps, selectedOp.name]
+        });
+      }).catch(err => {
+        console.error("Operator selection transaction failed:", err);
+      });
     }
   };
 
@@ -1049,20 +1183,35 @@ const App: React.FC = () => {
     setChatInput('');
   };
 
-  const handleQueue = () => {
+  const handleQueue = async () => {
     setIsQueuing(true);
     setGameState(prev => ({ ...prev, gameMode: 'MULTIPLAYER_QUEUE', isHost: false }));
     setShowJoinRoom(false);
+    
     if (socket) {
+      // 1. Classic socket queue (for legacy support/metrics)
       socket.emit('queue-online');
+
+      // 2. FIRESTORE Matchmaking Queue
+      const queueRef = doc(db, 'matchmaking_queue', socket.id);
+      await setDoc(queueRef, {
+        socketId: socket.id,
+        name: profile.name,
+        email: profile.email,
+        avatarId: profile.avatarId,
+        joinedAt: serverTimestamp()
+      });
+      addToLog("Sector Search: Broadcasting frequency to Rhodes Island relay.");
     }
   };
 
-  const handleLeaveQueue = () => {
+  const handleLeaveQueue = async () => {
     setIsQueuing(false);
     setGameState(prev => ({ ...prev, gameMode: null, message: 'Mission search aborted.' }));
     if (socket) {
       socket.emit('leave-queue');
+      // Remove from Firestore queue
+      await deleteDoc(doc(db, 'matchmaking_queue', socket.id));
     }
   };
 

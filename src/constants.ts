@@ -143,51 +143,28 @@ export const LGD_CARDS: EventCard[] = [
     }
   },
   {
-    id: 6,
-    title: "Hoshiguma's Protection",
-    flavor: '"The Oni’s shield is unyielding. You have the L.G.D.’s full cooperation."',
-    effect: 'Get Out of Jail Free. This card may be kept or traded.',
-    image: "/Resources/Cards/LGD FIles/Hoshiguma's Protection.png",
-    action: (player, players) => ({
-      players: players.map(p => p.id === player.id ? { ...p, hasGetOutOfJailFreeCard: true } : p),
-      message: 'Received a Get Out of Jail Free card.'
-    })
-  },
-  {
-    id: 7,
-    title: 'Tactical Error',
-    flavor: '"A miscalculation in the deployment phase has left your flank exposed."',
-    effect: 'Go back 3 spaces.',
-    image: '/Resources/Cards/LGD FIles/Tactical Error.png',
-    action: (player, players) => {
-      const newPos = (player.position - 3 + 40) % 40;
+    id: 9,
+    title: 'Infrastructure Upgrade',
+    flavor: '"Standard city maintenance is required to keep the nomadic plates shifting smoothly."',
+    effect: 'Pay O250 for each Dormitory and O1,000 for each Office.',
+    image: '/Resources/Cards/LGD FIles/Infrastructure Upgrade.png',
+    action: (player, players, tiles) => {
+      let totalCost = 0;
+      player.properties.forEach(tileId => {
+        const tile = tiles[tileId];
+        if (tile.type === 'PROPERTY') {
+          if (tile.dorms && tile.dorms < 5) {
+            totalCost += tile.dorms * 250;
+          } else if (tile.dorms === 5) {
+            totalCost += 1000;
+          }
+        }
+      });
       return {
-        players: players.map(p => p.id === player.id ? { ...p, position: newPos } : p),
-        message: 'Moved back 3 spaces.'
+        players: players.map(p => p.id === player.id ? { ...p, orundum: p.orundum - totalCost } : p),
+        message: `Paid O${totalCost} for sector infrastructure maintenance.`
       };
     }
-  },
-  {
-    id: 8,
-    title: 'Supply Drop',
-    flavor: '"Logistics has approved a localized resource dump to support your sector."',
-    effect: 'The Bank pays you a dividend of O500.',
-    image: '/Resources/Cards/LGD FIles/Supply Drop.png',
-    action: (player, players) => ({
-      players: players.map(p => p.id === player.id ? { ...p, orundum: p.orundum + 500 } : p),
-      message: 'Collected O500 dividend.'
-    })
-  },
-  {
-    id: 9,
-    title: 'Slug Infestation',
-    flavor: '"Warning: Originium Slugs have breached the sanitation tunnels."',
-    effect: 'Pay a fine of O150 for environmental cleanup.',
-    image: '/Resources/Cards/LGD FIles/Slug Infestation.png',
-    action: (player, players) => ({
-      players: players.map(p => p.id === player.id ? { ...p, orundum: p.orundum - 150 } : p),
-      message: 'Paid O150 fine.'
-    })
   }
 ];
 
@@ -195,21 +172,21 @@ export const INTEL_CARDS: EventCard[] = [
   {
     id: 101,
     title: "Amiya's Encouragement",
-    flavor: '"Doctor, you\'re doing a great job. Let\'s keep going together."',
-    effect: 'Collect O500 from every other player.',
+    flavor: '"Doctor, you\'re doing a great job! Everyone is motivated by your presence."',
+    effect: 'Everyone gives you O100 as a "Trust" bonus.',
     image: "/Resources/Cards/Rhodes Island Intel/Amiya's Encouragement.png",
     action: (player, players) => {
       let totalCollected = 0;
       const updatedPlayers = players.map(p => {
         if (p.id !== player.id && !p.isBankrupt) {
-          totalCollected += 500;
-          return { ...p, orundum: p.orundum - 500 };
+          totalCollected += 100;
+          return { ...p, orundum: p.orundum - 100 };
         }
         return p;
       });
       return {
         players: updatedPlayers.map(p => p.id === player.id ? { ...p, orundum: p.orundum + totalCollected } : p),
-        message: `Collected O${totalCollected} from other Doctors.`
+        message: `Collected O${totalCollected} from other Doctors as a Trust bonus.`
       };
     }
   },
