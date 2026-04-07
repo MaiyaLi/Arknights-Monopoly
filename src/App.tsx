@@ -43,7 +43,9 @@ import {
   Smartphone,
   RotateCw,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Music,
+  RotateCcw
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { db } from './firebase';
@@ -97,6 +99,24 @@ const PRELOAD_ASSETS = [
   ...LGD_CARDS.map(c => c.image),
   ...INTEL_CARDS.map(c => c.image),
   '/Resources/Characters/Icon/Alive/Amiya Alive.png'
+];
+
+const LOBBY_MUSIC_TRACKS = [
+  "Battleplan Extinguished Sins - Monster Siren Records - Topic (128k).mp3",
+  "Battleplan Pyrolysis - Monster Siren Records - Topic (128k).mp3",
+  "Battleplan Underdawn - Monster Siren Records - Topic (128k).mp3",
+  "Operation Ashring - Monster Siren Records - Topic (128k).mp3",
+  "Operation Basepoint - Monster Siren Records - Topic (128k).mp3",
+  "Operation Blade - Monster Siren Records - Topic (128k).mp3",
+  "Operation Cinder - Monster Siren Records - Topic (128k).mp3",
+  "Operation Dawnseeker - Monster Siren Records - Topic (128k).mp3",
+  "Operation Deepness - Release - Topic (128k).mp3",
+  "Operation Fake Waves - Monster Siren Records - Topic (128k).mp3",
+  "Operation Lead Seal - David Westbom - Topic (128k).mp3",
+  "Operation Pine Soot - Monster Siren Records - Topic (128k).mp3",
+  "Operation Pyrite - Monster Siren Records - Topic (128k).mp3",
+  "Operation Spectrum - Steven Grove - Topic (128k).mp3",
+  "Operation Wild Scales - David Westbom - Topic (128k).mp3"
 ];
 
 const LoadingScreen = ({ progress }: { progress: number }) => {
@@ -269,7 +289,8 @@ const App: React.FC = () => {
     turnTimeLimit: 45,
     lastAiTradeTime: 0,
     chatMessages: [],
-    tiles: TILES
+    tiles: TILES,
+    turnCount: 0
   });
 
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -314,7 +335,7 @@ const App: React.FC = () => {
               animate={{ width: `${(queuePosition / Math.max(1, queueTotal)) * 100}%` }}
             />
           </div>
-          <p className="text-[9px] text-zinc-600 font-mono italic text-center">Protocol: Matchmaking will initialize at 2+ Doctors (Max 4).</p>
+          <p className="text-[9px] text-zinc-600 font-mono italic text-center">Protocol: Matchmaking will initialize at 4 Doctors.</p>
         </div>
 
         <button 
@@ -353,11 +374,11 @@ const App: React.FC = () => {
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
   useEffect(() => {
     scrollToBottom();
   }, [gameState.chatMessages]);
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
+  const [missionCountdown, setMissionCountdown] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<'board' | 'players' | 'log' | 'property'>('board');
   const [showArchives, setShowArchives] = useState(false);
@@ -379,7 +400,18 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('arknights_monopoly_profile');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          name: 'Doctor',
+          email: '',
+          avatarId: 'avatar_doctor',
+          level: 1,
+          exp: 0,
+          wins: 0,
+          losses: 0,
+          matches: 0,
+          ...parsed
+        };
       } catch (e) {
         console.error('Failed to parse saved profile:', e);
       }
@@ -396,15 +428,99 @@ const App: React.FC = () => {
     };
   });
 
+  const [currentMusicIndex, setCurrentMusicIndex] = useState(() => Math.floor(Math.random() * LOBBY_MUSIC_TRACKS.length));
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Only play if not in game and not already playing
+    if (!gameState.gameStarted && !audioRef.current) {
+      audioRef.current = new Audio(`/Resources/Lobby Music/${LOBBY_MUSIC_TRACKS[currentMusicIndex]}`);
+      audioRef.current.loop = true;
+      audioRef.current.volume = 0.4;
+      
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.log("Autoplay prevented. User interaction required.");
+        });
+      }
+    }
+
+    // Stop music if game starts
+    if (gameState.gameStarted && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, [gameState.gameStarted, currentMusicIndex]);
+
+  const changeMusic = () => {
+    let nextIndex;
+    do {
+      nextIndex = Math.floor(Math.random() * LOBBY_MUSIC_TRACKS.length);
+    } while (nextIndex === currentMusicIndex && LOBBY_MUSIC_TRACKS.length > 1);
+    
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setCurrentMusicIndex(nextIndex);
+  };
+
   useEffect(() => {
     localStorage.setItem('arknights_monopoly_profile', JSON.stringify(profile));
   }, [profile]);
-
+  
+  // Persistence: Save active session
   useEffect(() => {
-    if (socket && profile.email) {
-      socket.emit('identify-user', { email: profile.email, name: profile.name, avatarId: profile.avatarId });
+    if (gameState.roomId && gameState.gameStarted) {
+      localStorage.setItem('arknights_monopoly_active_session', JSON.stringify({
+        roomId: gameState.roomId,
+        gameMode: gameState.gameMode,
+        timestamp: Date.now()
+      }));
+    } else if (!gameState.gameStarted && !gameState.roomId) {
+      // Clear session if we are back at menu and not in a room
+      // But don't clear if just temporarily disconnected
     }
-  }, [socket]); // Auto-identify on connect if email exists
+  }, [gameState.roomId, gameState.gameStarted, gameState.gameMode]);
+
+  const updateProfileStats = useCallback((expGain: number, outcome: 'WIN' | 'LOSS' | 'PARTICIPATION') => {
+    setProfile(prev => {
+      const newExp = prev.exp + expGain;
+      const newMatches = prev.matches + 1;
+      const newWins = outcome === 'WIN' ? prev.wins + 1 : prev.wins;
+      const newLosses = outcome === 'LOSS' ? prev.losses + 1 : prev.losses;
+      
+      // Scaling Level formula: Level N requires floor(1000 * 1.2^(N-1)) XP
+      // To find level from total XP, we iterate
+      let level = 1;
+      let xpRemaining = newExp;
+      let xpRequired = 1000;
+      
+      while (xpRemaining >= xpRequired) {
+        xpRemaining -= xpRequired;
+        level++;
+        xpRequired = Math.floor(1000 * Math.pow(1.2, level - 1));
+      }
+      
+      return {
+        ...prev,
+        exp: newExp,
+        level: level,
+        matches: newMatches,
+        wins: newWins,
+        losses: newLosses
+      };
+    });
+  }, []);
+
   const [settings, setSettings] = useState({
     volume: 50,
     soundEnabled: true,
@@ -500,7 +616,7 @@ const App: React.FC = () => {
         ...p, 
         avatar: p.avatar || AVATARS.find(a => a.id === p.avatarId) || AVATARS[0],
         operator: operatorObj,
-        status: p.status || (operatorObj ? 'READY' : 'WAITING')
+        status: p.status || (operatorObj ? 'DEPLOYED' : 'SELECTING...')
       };
     });
   }, []);
@@ -688,6 +804,14 @@ const App: React.FC = () => {
       setIsConnected(true);
       setConnectError(null);
       addToLog("Tactical link established: Online.");
+      // Auto-identify on connect if email exists
+      if (profileRef.current.email) {
+        newSocket.emit('identify-user', { 
+          email: profileRef.current.email, 
+          name: profileRef.current.name, 
+          avatarId: profileRef.current.avatarId 
+        });
+      }
     };
 
     const onConnectError = (err: any) => {
@@ -889,8 +1013,16 @@ const App: React.FC = () => {
       });
     });
 
+    newSocket.on('mission-countdown', ({ countdown }) => {
+      setMissionCountdown(countdown);
+      if (countdown !== null) {
+        playSound(SOUNDS.ALERT);
+      }
+    });
+
     newSocket.on('mission-start', () => {
       isNetworkUpdate.current = true;
+      setMissionCountdown(null);
       setGameState(prev => ({ ...prev, gameStarted: true }));
       addToLog("Mission START! All operators deploy.");
       playSound(SOUNDS.GO);
@@ -1244,29 +1376,20 @@ const App: React.FC = () => {
       playSound(SOUNDS.VICTORY);
       
       // Update profile if player won
-      if (winner.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && winner.id === 'p0')) {
-        setProfile(prev => ({
-          ...prev,
-          wins: prev.wins + 1,
-          matches: prev.matches + 1,
-          exp: prev.exp + 500,
-          level: Math.floor((prev.exp + 500) / 1000) + 1
-        }));
+      const isLocalWinner = winner.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && winner.id === 'player-1');
+      if (isLocalWinner) {
+        updateProfileStats(500 + (gameState.turnCount * 5), 'WIN');
       } else {
-        // If local player was still in the game, they lost
-        const isLocalStillIn = gameState.players.some(p => (p.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'p0')) && !p.isBankrupt);
+        // If local player was still in the game but didn't win, they survived until the end
+        const isLocalStillIn = gameState.players.some(p => 
+          (p.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'player-1')) && !p.isBankrupt
+        );
         if (isLocalStillIn) {
-          setProfile(prev => ({
-            ...prev,
-            losses: prev.losses + 1,
-            matches: prev.matches + 1,
-            exp: prev.exp + 100,
-            level: Math.floor((prev.exp + 100) / 1000) + 1
-          }));
+          updateProfileStats(100 + Math.floor(gameState.turnCount / 10) * 50, 'LOSS');
         }
       }
     }
-  }, [gameState.players, gameState.gameStarted, gameState.winner, socket?.id, gameState.gameMode]);
+  }, [gameState.players, gameState.gameStarted, gameState.winner, socket?.id, gameState.gameMode, gameState.turnCount, updateProfileStats]);
 
   const calculateTotalAssets = useCallback((player: Player) => {
     let total = player.orundum;
@@ -1310,6 +1433,10 @@ const App: React.FC = () => {
     setShowGameOver(false);
     setSelectedOperators([]);
     setActiveTab('board');
+    setShowCharacterSelect(false);
+    setMissionCountdown(null);
+    setIsQueuing(false);
+    localStorage.removeItem('arknights_monopoly_active_session');
   };
 
   const currentPlayer = (gameState.players && gameState.players.length > 0 && gameState.currentPlayerIndex >= 0) 
@@ -1823,13 +1950,13 @@ const App: React.FC = () => {
       return {
         ...prev,
         players: updatedPlayers,
-        currentPlayerIndex: nextIndex,
         turnTimer,
         hasRolled: false,
         isRolling: false,
         consecutiveDoubles: 0,
         canRollAgain: false,
-        message: `It's ${prev.players[nextIndex].name}'s turn.`
+        message: `It's ${prev.players[nextIndex].name}'s turn.`,
+        turnCount: prev.turnCount + 1
       };
     });
 
@@ -1852,9 +1979,7 @@ const App: React.FC = () => {
         if (creditorId && p.id === creditorId) {
           return {
             ...p,
-            // Add what's left of player's cash
             orundum: p.orundum + Math.max(0, player.orundum),
-            // Hand over all properties
             properties: [...(p.properties || []), ...(player.properties || [])]
           };
         }
@@ -1863,13 +1988,7 @@ const App: React.FC = () => {
 
       const updatedTiles = prev.tiles.map(t => {
         if (t.ownerId === player.id) {
-          // If there's a creditor, properties transfer but buildings are lost (sold for 50% already factored in asset check)
-          return { 
-            ...t, 
-            ownerId: creditorId || '', 
-            dorms: 0, 
-            isMortgaged: false 
-          };
+          return { ...t, ownerId: creditorId || '', dorms: 0, isMortgaged: false };
         }
         return t;
       });
@@ -1898,11 +2017,12 @@ const App: React.FC = () => {
         message = `${player.name} has gone bankrupt! It's ${updatedPlayers[nextIndex].name}'s turn.`;
         hasRolled = false;
         canRollAgain = false;
-        
-        // Notify other players of turn change due to bankruptcy
-        if (socket && prev.roomId) {
-          socket.emit('next-turn', { roomId: prev.roomId, nextIndex });
-        }
+      }
+
+      // Record profile reward for local player going bankrupt
+      const isLocalPlayer = player.id === socket?.id || (prev.gameMode === 'SINGLEPLAYER' && player.id === 'player-1');
+      if (isLocalPlayer) {
+        updateProfileStats(100 + Math.floor(prev.turnCount / 10) * 50, 'LOSS');
       }
 
       const newState = {
@@ -1910,44 +2030,45 @@ const App: React.FC = () => {
         players: updatedPlayers,
         tiles: updatedTiles,
         currentPlayerIndex: nextIndex,
+        message,
         hasRolled,
-        canRollAgain,
-        message
+        canRollAgain
       };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
         const { chatMessages, ...stateToSync } = newState;
         socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('next-turn', { roomId: prev.roomId, nextIndex });
       }
 
       return newState;
     });
-
-    addToLog(`${player.name} is bankrupt.`);
-    playSound(SOUNDS.BANKRUPT);
     
-    // Award EXP if local player went bankrupt
-    if (player.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && player.id === 'p0')) {
-      const activePlayersCount = gameState.players.filter(p => !p.isBankrupt).length;
-      const expGained = activePlayersCount === 4 ? 100 : activePlayersCount === 3 ? 200 : 300;
-      setProfile(prev => ({
-        ...prev,
-        matches: prev.matches + 1,
-        losses: prev.losses + 1,
-        exp: prev.exp + expGained,
-        level: Math.floor((prev.exp + expGained) / 1000) + 1
-      }));
-    }
+    playSound(SOUNDS.BANKRUPT);
+    addToLog(`${player.name} is bankrupt.`);
+  }, [socket, updateProfileStats, isNetworkUpdate, playSound]);
 
-    if (gameState.gameMode !== 'SINGLEPLAYER' && socket) {
-      socket.emit('gameAction', {
-        type: 'BANKRUPTCY',
-        playerId: player.id,
-        creditorId,
-        roomId: gameState.roomId
-      });
+  const handleRejoinSector = useCallback(() => {
+    const saved = localStorage.getItem('arknights_monopoly_active_session');
+    if (saved && socket) {
+      try {
+        const { roomId, gameMode } = JSON.parse(saved);
+        if (roomId) {
+          addToLog(`Mission Control: Attempting to re-establish sector link ${roomId}...`);
+          setIsJoining(true);
+          setGameState(prev => ({ ...prev, roomId, gameMode }));
+          socket.emit('join-game', { 
+            roomId, 
+            playerName: profile.name, 
+            playerEmail: profile.email,
+            avatarId: profile.avatarId
+          });
+        }
+      } catch (e) {
+        console.error('Failed to rejoin session:', e);
+      }
     }
-  }, [gameState.players, tiles, socket, gameState.gameMode, gameState.roomId]);
+  }, [socket, profile, addToLog]);
 
   const calculateRent = useCallback((tile: Tile, owner: Player) => {
     if (tile.isMortgaged) return 0;
@@ -3139,7 +3260,7 @@ const App: React.FC = () => {
               >
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
                   <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
-                    <Settings Icon className="text-orange-500" /> Settings
+                    <Settings className="text-orange-500" /> Settings
                   </h2>
                   <button 
                     onClick={() => setShowSettings(false)}
@@ -3193,6 +3314,29 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
+                  <div className="mt-8 pt-6 border-t border-zinc-800">
+                    <button 
+                      onClick={() => {
+                        if (window.confirm("ARE YOU SURE YOU WANT TO ABORT THE MISSION? THIS ACTION IS PERMANENT.")) {
+                          handleBankruptcy(localPlayer);
+                          setShowSettings(false);
+                        }
+                      }}
+                      className="w-full py-4 bg-red-900/50 border border-red-500/30 hover:bg-red-500/20 text-red-500 font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 group"
+                    >
+                      <ShieldAlert className="w-5 h-5 group-hover:animate-pulse" /> Tactical Abort
+                    </button>
+                  </div>
+                )}
+                
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  className="w-full mt-4 py-4 bg-zinc-800 text-zinc-400 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-700 transition-all"
+                >
+                  Close Settings
+                </button>
               </motion.div>
             </div>
           )}
@@ -3372,11 +3516,11 @@ const App: React.FC = () => {
                     <button 
                       onClick={() => {
                         if (socket) {
-                          addToLog("Mission Control: Re-syncing signal...");
-                          socket.connect();
+                          addToLog("Mission Control: Force-discharging and re-linking tactical signal...");
+                          socket.disconnect().connect();
                         }
                       }}
-                      className="ml-1 text-[7px] hover:text-white underline decoration-dashed"
+                      className="ml-1 text-[7px] hover:text-white underline decoration-dashed uppercase font-bold"
                     >
                       SYNC SIGNAL
                     </button>
@@ -3446,6 +3590,15 @@ const App: React.FC = () => {
                   {isQueuing ? 'Searching...' : 'Online Queue'}
                 </button>
 
+                {localStorage.getItem('arknights_monopoly_active_session') && !gameState.roomId && (
+                  <button 
+                    onClick={handleRejoinSector}
+                    className="w-full py-1.5 bg-zinc-800 text-orange-500 font-black uppercase italic tracking-widest rounded-sm border border-orange-500/30 hover:bg-orange-500/10 hover:border-orange-500 transition-all flex items-center justify-center gap-2 text-[10px] animate-pulse"
+                  >
+                    <History className="w-3 h-3" /> Rejoin Sector
+                  </button>
+                )}
+
                 <div className="h-px bg-zinc-800 my-0.5" />
 
                 <div className="grid grid-cols-3 gap-1">
@@ -3468,6 +3621,24 @@ const App: React.FC = () => {
                     Settings
                   </button>
                 </div>
+
+                <div className="mt-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                      <Music className="w-3 h-3" /> Mission Soundtrack
+                    </div>
+                    <button 
+                      onClick={changeMusic}
+                      className="p-1 hover:bg-zinc-800 rounded-full text-zinc-500 hover:text-orange-500 transition-colors"
+                      title="Next Track (Random)"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="text-[9px] font-bold text-zinc-400 italic truncate uppercase tracking-tighter">
+                    {LOBBY_MUSIC_TRACKS[currentMusicIndex].replace(' - Monster Siren Records - Topic (128k).mp3', '').replace('.mp3', '')}
+                  </div>
+                </div>
               </div>
             </motion.div>
           ) : (
@@ -3476,8 +3647,28 @@ const App: React.FC = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden p-1 md:p-0"
+              className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden p-1 md:p-0 relative"
             >
+              {/* Mission Start Countdown Overlay */}
+              <AnimatePresence>
+                {missionCountdown !== null && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 1.5 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.5 }}
+                    className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md pointer-events-none"
+                  >
+                    <div className="text-[10px] font-black text-orange-500 uppercase tracking-[0.5em] mb-2 animate-pulse">DEPLOYMENT IMMINENT</div>
+                    <div className="text-9xl font-black italic text-white drop-shadow-[0_0_30px_rgba(255,140,0,0.5)]">
+                      {missionCountdown}
+                    </div>
+                    <div className="mt-4 px-6 py-2 bg-orange-500 text-black text-xs font-black uppercase italic tracking-widest skew-x-[-12deg]">
+                      Synchronizing Tactical Data
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="flex items-center justify-between border-b border-zinc-800 pb-1 gap-2 shrink-0">
                 <div className="flex items-center gap-3">
                   <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0 flex items-center gap-2">
@@ -3679,7 +3870,7 @@ const App: React.FC = () => {
                                   <div className="bg-green-500/20 p-1.5 md:p-2 rounded-full border border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.4)] mb-1">
                                     <CheckCircle2 className="w-5 h-5 md:w-8 md:h-8 text-green-500" />
                                   </div>
-                                  <div className="text-[7px] md:text-[10px] font-black text-green-500 uppercase tracking-widest bg-black/60 px-2 py-0.5 rounded border border-green-500/30">Confirmed</div>
+                                  <div className="text-[7px] md:text-[10px] font-black text-green-500 uppercase tracking-widest bg-black/60 px-2 py-0.5 rounded border border-green-500/30">Deployed</div>
                                 </div>
                               ) : (
                                 <div className="flex flex-col items-center w-full px-1">
@@ -3915,6 +4106,20 @@ const App: React.FC = () => {
         >
           <Search className="w-6 h-6" />
         </button>
+
+        {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
+          <button
+            onClick={() => {
+              if (window.confirm("IMMEDIATE MISSION ABORT? SURVIVAL REWARDS WILL BE PROCESSED.")) {
+                handleBankruptcy(localPlayer);
+              }
+            }}
+            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-900/40 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white"
+            title="TACTICAL ABORT (FORFEIT)"
+          >
+            <ShieldAlert className="w-6 h-6" />
+          </button>
+        )}
       </div>
 
       {/* Chat System */}
@@ -5418,6 +5623,17 @@ const App: React.FC = () => {
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-orange-500/10 p-4 rounded-lg border border-orange-500/30">
+                    <div className="text-[10px] text-orange-500 font-black uppercase tracking-widest">Level</div>
+                    <div className="text-3xl font-black italic text-orange-500">{profile.level}</div>
+                  </div>
+                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Total EXP</div>
+                    <div className="text-xl font-black italic">{profile.exp}</div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
                     <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>

@@ -114,6 +114,7 @@ export interface GameState {
   turnTimeLimit: number;
   chatMessages: ChatMessage[];
   tiles: Tile[];
+  turnCount: number;
 }
 
 export interface ChatMessage {

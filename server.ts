@@ -117,8 +117,7 @@ async function startServer() {
 
   await loadUsers();
 
-  const socketToEmail = new Map<string, string>();
-  const rooms = new Map<string, {
+  interface Room {
     players: any[];
     expectedPlayerCount?: number;
     gameState: any;
@@ -130,7 +129,12 @@ async function startServer() {
     hostId: string;
     hostName?: string;
     hostEmail?: string;
-  }>();
+    missionTimer?: NodeJS.Timeout;
+    missionCountdown?: number;
+  }
+
+  const socketToEmail = new Map<string, string>();
+  const rooms = new Map<string, Room>();
 
   const socketToRoom = new Map<string, string>();
   const queue: string[] = [];
@@ -138,6 +142,7 @@ async function startServer() {
   let matchmakingCountdown = 10;
 
   const TURN_TIME_LIMIT = 45;
+  const MISSION_START_COUNTDOWN = 5;
   
   // --- Firestore Helpers ---
   async function saveLobbyToFirestore(roomId: string) {
@@ -212,10 +217,10 @@ async function startServer() {
   }
 
   function startMatchmaking() {
-    // Only start if we have at least 2 real players
-    if (queue.length < 2) return;
+    // Only start if we have exactly 4 players for a full squad
+    if (queue.length < 4) return;
     
-    const playersToJoin = queue.splice(0, Math.min(queue.length, 4));
+    const playersToJoin = queue.splice(0, 4);
     const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     
     const newRoom = {
@@ -439,16 +444,11 @@ async function startServer() {
       console.log(`User ${socket.id} queued. Total: ${queue.length}`);
       
       // Start countdown only if there are at least 2 humans
-      if (queue.length >= 2 && !matchmakingTimer) {
-        matchmakingCountdown = 10;
-        matchmakingTimer = setInterval(() => {
-          matchmakingCountdown--;
-          broadcastQueueUpdate();
-          if (matchmakingCountdown <= 0 || queue.length >= 4) {
-            startMatchmaking();
-          }
-        }, 1000);
+      // Only start once we have a full squad of 4
+      if (queue.length >= 4) {
+        startMatchmaking();
       }
+      broadcastQueueUpdate();
       broadcastQueueUpdate();
     });
 
@@ -506,13 +506,32 @@ async function startServer() {
         await saveLobbyToFirestore(roomId);
 
         // Automatic start for matchmaking rooms when all expected players have selected
-        if (room.status === 'LOBBY' && room.expectedPlayerCount && room.selectedOperators.length === room.expectedPlayerCount) {
-          const allReady = room.players.length >= room.expectedPlayerCount && room.players.every(p => p.operator !== null);
-          if (allReady) {
-            room.status = 'IN_PROGRESS';
-            io.to(roomId).emit('mission-start');
-            startTurnTimer(roomId);
-          }
+        // Or for manual rooms when everyone is ready
+        const allReady = room.players.length >= 2 && room.players.every(p => p.operator !== null);
+        
+        if (allReady && !room.missionTimer) {
+          room.missionCountdown = MISSION_START_COUNTDOWN;
+          io.to(roomId).emit('mission-countdown', { countdown: room.missionCountdown });
+
+          room.missionTimer = setInterval(() => {
+            if (room.missionCountdown! > 0) {
+              room.missionCountdown!--;
+              io.to(roomId).emit('mission-countdown', { countdown: room.missionCountdown });
+            } else {
+              if (room.missionTimer) clearInterval(room.missionTimer);
+              room.missionTimer = undefined;
+              room.status = 'IN_PROGRESS';
+              io.to(roomId).emit('mission-start');
+              startTurnTimer(roomId);
+              saveLobbyToFirestore(roomId).catch(e => console.error("Firestore Error on game start:", e));
+            }
+          }, 1000);
+        } else if (!allReady && room.missionTimer) {
+          // If someone un-selects, cancel countdown
+          clearInterval(room.missionTimer);
+          room.missionTimer = undefined;
+          room.missionCountdown = undefined;
+          io.to(roomId).emit('mission-countdown', { countdown: null });
         }
       }
     });
@@ -530,6 +549,10 @@ async function startServer() {
           socket.emit('error', 'Operational synchronization in progress... Wait for all Doctors to select an operator.');
           return;
         }
+
+        // Host can bypass countdown if they want
+        if (room.missionTimer) clearInterval(room.missionTimer);
+        room.missionTimer = undefined;
 
         room.status = 'IN_PROGRESS';
         await saveLobbyToFirestore(roomId); // Sync final lobby status before starting
@@ -592,6 +615,7 @@ async function startServer() {
         
         if (room.players.length === 0) {
           if (room.turnTimer) clearInterval(room.turnTimer);
+          if (room.missionTimer) clearInterval(room.missionTimer);
           rooms.delete(roomId);
           await deleteLobbyFromFirestore(roomId);
         } else {
@@ -629,6 +653,7 @@ async function startServer() {
 
           if (room.players.length === 0) {
             if (room.turnTimer) clearInterval(room.turnTimer);
+            if (room.missionTimer) clearInterval(room.missionTimer);
             rooms.delete(roomId);
             await deleteLobbyFromFirestore(roomId);
           } else {
