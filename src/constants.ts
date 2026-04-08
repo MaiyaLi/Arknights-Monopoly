@@ -345,7 +345,7 @@ export const OPERATORS: Operator[] = [
   { 
     name: 'Hoshiguma', 
     title: 'L.G.D. Superintendent', 
-    color: '#44ff44', 
+    color: '#2E8B57', 
     portrait: '/Resources/Characters/Operators Art/Hoshiguma.webp',
     spriteFolder: 'Hoshiguma',
     spriteBaseName: 'Hoshiguma',
@@ -357,7 +357,7 @@ export const OPERATORS: Operator[] = [
   { 
     name: 'Lappland', 
     title: 'Siracusan Mercenary', 
-    color: '#ffffff', 
+    color: '#F8F8FF', 
     portrait: '/Resources/Characters/Operators Art/Lappland.webp',
     spriteFolder: 'Lappland',
     spriteBaseName: 'Lappland',
@@ -393,7 +393,7 @@ export const OPERATORS: Operator[] = [
   { 
     name: 'Pramanix', 
     title: 'Saintess of Kjerag', 
-    color: '#ffffff', 
+    color: '#B0C4DE', 
     portrait: '/Resources/Characters/Operators Art/Pramanix.webp',
     spriteFolder: 'Pramanix',
     spriteBaseName: 'Pramanix',
@@ -405,7 +405,7 @@ export const OPERATORS: Operator[] = [
   { 
     name: 'SilverAsh', 
     title: 'Warlord of Kjerag', 
-    color: '#c0c0c0', 
+    color: '#708090', 
     portrait: '/Resources/Characters/Operators Art/SilverAsh.webp',
     spriteFolder: 'Silverash',
     spriteBaseName: 'Silverash',
@@ -417,7 +417,7 @@ export const OPERATORS: Operator[] = [
   { 
     name: 'Kal\'tsit', 
     title: 'Rhodes Island Medical Director', 
-    color: '#00ff00', 
+    color: '#00FA9A', 
     portrait: '/Resources/Characters/Operators Art/Kal\'tsit.webp',
     spriteFolder: 'Kal\'tsit',
     spriteBaseName: 'Kal\'tsit',

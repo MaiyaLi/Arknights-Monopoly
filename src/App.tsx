@@ -399,6 +399,13 @@ const App: React.FC = () => {
   const [copySuccess, setCopySuccess] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const reconnect = useCallback(() => {
+    if (socket) {
+      setConnectError(null);
+      addToLog("Attempting to re-establish tactical link...");
+      socket.connect();
+    }
+  }, [socket, addToLog]);
   const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
   const [profile, setProfile] = useState(() => {
     const saved = localStorage.getItem('arknights_monopoly_profile');
@@ -793,16 +800,16 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Phase III: Force-Hardlink to Render (Bypass environment variables)
-    const BACKEND_URL = 'https://arknights-monopoly.onrender.com';
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://arknights-monopoly.onrender.com';
     
     addToLog(`Mission Control: Attempting tactical deep-link to ${BACKEND_URL}...`);
     
     const newSocket = io(BACKEND_URL, { 
       transports: ['websocket', 'polling'], // Prioritize websocket for stability
-      reconnectionAttempts: 20, // Increase attempts for Render cold starts
+      reconnectionAttempts: 30, // Increase attempts for Render cold starts
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 90000, // 90s timeout for Render cold boot
+      timeout: 120000, // 120s timeout for Render cold boot
       autoConnect: true,
       withCredentials: true
     });
@@ -2048,7 +2055,10 @@ const App: React.FC = () => {
       if (socket && prev.roomId && !isNetworkUpdate.current) {
         const { chatMessages, ...stateToSync } = newState;
         socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
-        socket.emit('next-turn', { roomId: prev.roomId, nextIndex });
+        // Only trigger next-turn if the forfeiting player WAS the current player
+        if (prev.players[prev.currentPlayerIndex].id === player.id) {
+          socket.emit('next-turn', { roomId: prev.roomId, nextIndex });
+        }
       }
 
       return newState;
@@ -4054,7 +4064,10 @@ const App: React.FC = () => {
                       Initialize Forfeit
                     </button>
                     <button 
-                      onClick={() => setShowForfeitConfirm(false)}
+                      onClick={() => {
+                        setShowForfeitConfirm(false);
+                        if (!isConnected) reconnect(); // Hidden retry on resume
+                      }}
                       className="flex-1 py-4 bg-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-all"
                     >
                       Resume Mission

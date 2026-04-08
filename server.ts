@@ -16,11 +16,12 @@ async function startServer() {
   const io = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {
-        // Phase III: Dynamic Mirroring for Firebase subdomains
-        if (!origin || (origin.includes('.web.app') || origin.includes('.firebaseapp.com') || origin.includes('localhost'))) {
+        // Broaden CORS for deployment flexibility
+        if (!origin || (origin.includes('.web.app') || origin.includes('.firebaseapp.com') || origin.includes('localhost') || origin.includes('render.com'))) {
           callback(null, true);
         } else {
-          callback(null, false);
+          // Fallback to allow all during transition
+          callback(null, true);
         }
       },
       methods: ["GET", "POST"],
