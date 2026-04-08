@@ -3531,71 +3531,86 @@ const App: React.FC = () => {
           ) : !showCharacterSelect ? (
             <motion.div 
               key="main-menu"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="z-10 flex flex-col items-center gap-3 md:gap-4 max-h-full overflow-hidden py-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="z-10 flex flex-col lg:flex-row items-stretch justify-center gap-4 lg:gap-8 max-w-6xl w-full px-4 lg:px-8 py-4 overflow-y-auto no-scrollbar"
             >
-              <div className="flex flex-col items-center gap-1 md:gap-2 shrink-0">
-                <Shield className="text-orange-500 w-10 h-10 md:w-16 md:h-16 animate-pulse" />
-                <h1 className="text-2xl md:text-4xl font-black tracking-tighter uppercase italic text-center leading-none">
-                  Arknights<br />
-                  <span className="text-orange-500">Monopoly</span>
-                </h1>
-                <p className="text-zinc-500 font-mono text-[8px] md:text-[10px] tracking-[0.2em] uppercase">Strategic Asset Acquisition Protocol</p>
-                
-                {/* Lobby Music Quick Widget */}
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="w-full max-w-[280px] bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-3 mt-2 mb-2"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center shrink-0">
-                    <Music className="w-4 h-4 text-orange-500 animate-spin-slow" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-0.5 leading-none">Atmospheric Signal</div>
-                    <div className="text-[10px] font-black italic uppercase tracking-tight text-white truncate leading-none">
-                      {LOBBY_MUSIC_METADATA[currentMusicIndex]}
+              {/* Left Wing: System Integrity & Atmosphere */}
+              <div className="flex-1 flex flex-col gap-4 lg:gap-6 min-w-0">
+                <div className="p-6 bg-zinc-900/40 backdrop-blur-md border border-zinc-800 rounded-3xl flex flex-col items-center lg:items-start gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-orange-500/10 border border-orange-500/30 flex items-center justify-center relative">
+                      <Shield className="text-orange-500 w-10 h-10 md:w-12 md:h-12 animate-pulse" />
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full animate-ping" />
+                    </div>
+                    <div className="flex flex-col">
+                      <h1 className="text-3xl md:text-5xl font-black italic uppercase tracking-tighter text-white leading-none">
+                        Arknights<br />
+                        <span className="text-orange-500">Monopoly</span>
+                      </h1>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="h-0.5 w-6 bg-orange-500" />
+                        <span className="text-zinc-500 font-mono text-[8px] md:text-[10px] tracking-[0.2em] uppercase">Strategic Asset Protocol</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={prevMusic} className="p-1.5 text-zinc-500 hover:text-orange-500 transition-colors"><SkipBack className="w-3.5 h-3.5" /></button>
-                    <button onClick={nextMusic} className="p-1.5 text-zinc-500 hover:text-orange-500 transition-colors"><SkipForward className="w-3.5 h-3.5" /></button>
+
+                  {/* Tactical Link Status */}
+                  <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 w-full pt-2 border-t border-zinc-800/50">
+                    <div className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-zinc-800 rounded-full">
+                      <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
+                        {isConnected ? 'Signal: Linked' : 'Signal: Lost'}
+                      </span>
+                    </div>
+                    {socket && !isConnected && (
+                      <button 
+                        onClick={() => socket.disconnect().connect()}
+                        className="text-[9px] text-zinc-500 hover:text-white underline decoration-dashed uppercase font-bold transition-colors"
+                      >
+                        Recalibrate
+                      </button>
+                    )}
+                    <div className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-zinc-800 rounded-full ml-auto">
+                      <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Node ID: </span>
+                      <span className="text-[9px] text-orange-500 font-mono font-bold tracking-widest">RI-PRTS-01</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Atmosphere Interface Card */}
+                <motion.div 
+                  initial={{ x: -20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="p-4 bg-zinc-900/60 backdrop-blur-md border border-zinc-800 rounded-2xl flex flex-col gap-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                        <Music className="w-4 h-4 text-orange-500 animate-spin-slow" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Atmospheric Signal</span>
+                        <span className="text-xs font-black italic uppercase tracking-tight text-white">{LOBBY_MUSIC_METADATA[currentMusicIndex]}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={prevMusic} className="p-2 text-zinc-500 hover:text-orange-500 transition-colors bg-black/20 rounded-lg border border-zinc-800 hover:border-orange-500/30"><SkipBack className="w-4 h-4" /></button>
+                      <button onClick={nextMusic} className="p-2 text-zinc-500 hover:text-orange-500 transition-colors bg-black/20 rounded-lg border border-zinc-800 hover:border-orange-500/30"><SkipForward className="w-4 h-4" /></button>
+                    </div>
                   </div>
                 </motion.div>
-                
-                {/* Tactical Link Status */}
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/40 border border-zinc-800 rounded-full mt-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]'}`} />
-                  <span className={`text-[7px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
-                    {isConnected ? 'Link Active: ONLINE' : 'Link Lost: OFFLINE'}
-                  </span>
-                  {!isConnected && (
-                    <button 
-                      onClick={() => {
-                        if (socket) {
-                          addToLog("Mission Control: Force-discharging and re-linking tactical signal...");
-                          socket.disconnect().connect();
-                        }
-                      }}
-                      className="ml-1 text-[7px] hover:text-white underline decoration-dashed uppercase font-bold"
-                    >
-                      SYNC SIGNAL
-                    </button>
-                  )}
-                </div>
               </div>
 
-              <div className="flex flex-col gap-1 md:gap-1.5 w-56 md:w-64 shrink-0">
-                <div className="flex flex-col gap-0.5 mb-1">
-                  <div className="flex justify-between items-end ml-1">
-                    <label className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Doctor Codename</label>
-                    <span className="text-[8px] text-orange-500 font-mono">LVL {profile.level}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 p-1 bg-zinc-900 border border-zinc-800 rounded focus-within:border-orange-500 transition-all">
+              {/* Right Wing: Operation Selection */}
+              <div className="flex-1 flex flex-col gap-4 min-w-0">
+                <div className="p-6 bg-zinc-900/40 backdrop-blur-md border border-zinc-800 rounded-3xl flex flex-col gap-4">
+                  {/* Doctor Profile Mini-panel */}
+                  <div className="p-3 bg-black/40 rounded-xl border border-zinc-800 flex items-center gap-4 group">
                     <div 
-                      className="w-6 h-6 rounded bg-zinc-800 border border-zinc-700 overflow-hidden cursor-pointer hover:border-orange-500 transition-all"
+                      className="w-12 h-12 rounded-lg bg-zinc-900 border border-zinc-800 overflow-hidden cursor-pointer hover:border-orange-500 transition-all relative"
                       onClick={() => setShowProfile(true)}
                     >
                       <img 
@@ -3604,83 +3619,98 @@ const App: React.FC = () => {
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
                       />
+                      <div className="absolute inset-0 bg-orange-500/0 hover:bg-orange-500/10 transition-all flex items-center justify-center">
+                        <User className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-all" />
+                      </div>
                     </div>
-                    <input 
-                      type="text" 
-                      value={profile.name}
-                      onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
-                      placeholder="ENTER NAME"
-                      className="flex-1 bg-transparent border-none outline-none text-[10px] font-black italic uppercase tracking-tighter text-white placeholder:text-zinc-700"
-                    />
+                    <div className="flex-1">
+                      <div className="flex justify-between items-end mb-1">
+                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none">Authorization ID</label>
+                        <span className="text-[9px] text-orange-500 font-mono font-bold">LEVEL {profile.level}</span>
+                      </div>
+                      <input 
+                        type="text" 
+                        value={profile.name}
+                        onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
+                        className="w-full bg-transparent border-none outline-none text-xl font-black italic uppercase tracking-tighter text-white placeholder:text-zinc-800 focus:text-orange-500 transition-colors"
+                        placeholder="IDENTIFY DOCTOR"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <button 
+                      onClick={() => {
+                        setGameState(prev => ({ ...prev, gameMode: 'SINGLEPLAYER' }));
+                        setShowCharacterSelect(true);
+                      }}
+                      className="group relative w-full overflow-hidden py-4 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-400 transition-all flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(249,115,22,0.2)]"
+                    >
+                      <Play className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      <span className="text-sm">Initiate Solo Operation</span>
+                      <div className="absolute bottom-1 right-2 text-[8px] opacity-30 font-mono not-italic">RI-OP-S</div>
+                    </button>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        onClick={handleHost}
+                        className="py-3 bg-zinc-800/50 border border-zinc-700 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-500 hover:text-black hover:border-orange-500 transition-all flex flex-col items-center justify-center gap-1"
+                      >
+                        <Wifi className="w-4 h-4" />
+                        <span className="text-[10px]">Host Link</span>
+                      </button>
+                      <button 
+                        onClick={() => setShowJoinRoom(true)}
+                        className="py-3 bg-zinc-800/50 border border-zinc-700 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-500 hover:text-black hover:border-orange-500 transition-all flex flex-col items-center justify-center gap-1"
+                      >
+                        <Users className="w-4 h-4" />
+                        <span className="text-[10px]">Join Link</span>
+                      </button>
+                    </div>
+
+                    <button 
+                      onClick={handleQueue}
+                      disabled={isQueuing}
+                      className={`w-full py-3 bg-zinc-800/50 border border-zinc-700 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 text-xs ${isQueuing ? 'opacity-50' : ''}`}
+                    >
+                      {isQueuing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                      {isQueuing ? 'Searching for Signals...' : 'Standard Deployment Queue'}
+                    </button>
+
+                    {localStorage.getItem('arknights_monopoly_active_session') && !gameState.roomId && (
+                      <button 
+                        onClick={handleRejoinSector}
+                        className="w-full py-3 bg-zinc-900 border-2 border-orange-500/50 text-orange-500 font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-500/10 transition-all flex items-center justify-center gap-3 text-xs animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+                      >
+                        <History className="w-4 h-4" /> Emergency Rejoin
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 mt-2 pt-4 border-t border-zinc-800/50">
+                    <button 
+                      onClick={() => setShowProfile(true)}
+                      className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1"
+                    >
+                      <User className="w-4 h-4" />
+                      <span className="text-[7px] font-black uppercase tracking-widest">Dossier</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowArchives(true)}
+                      className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1"
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      <span className="text-[7px] font-black uppercase tracking-widest">Archives</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowSettings(true)}
+                      className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1"
+                    >
+                      <Settings className="w-4 h-4" />
+                      <span className="text-[7px] font-black uppercase tracking-widest">Terminal</span>
+                    </button>
                   </div>
                 </div>
-
-                <button 
-                  onClick={() => {
-                    setGameState(prev => ({ ...prev, gameMode: 'SINGLEPLAYER' }));
-                    setShowCharacterSelect(true);
-                  }}
-                  className="w-full py-1.5 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all flex items-center justify-center gap-2 text-[10px]"
-                >
-                  <Play className="w-3 h-3" /> Singleplayer
-                </button>
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button 
-                    onClick={handleHost}
-                    className="py-1.5 border border-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all flex items-center justify-center gap-2 text-[9px]"
-                  >
-                    <Wifi className="w-2.5 h-2.5" /> Host
-                  </button>
-                  <button 
-                    onClick={() => setShowJoinRoom(true)}
-                    className="py-1.5 border border-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all flex items-center justify-center gap-2 text-[9px]"
-                  >
-                    <Users className="w-2.5 h-2.5" /> Join
-                  </button>
-                </div>
-
-                <button 
-                  onClick={handleQueue}
-                  disabled={isQueuing}
-                  className={`w-full py-1.5 border border-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all flex items-center justify-center gap-2 text-[9px] ${isQueuing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {isQueuing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Globe className="w-2.5 h-2.5" />}
-                  {isQueuing ? 'Searching...' : 'Online Queue'}
-                </button>
-
-                {localStorage.getItem('arknights_monopoly_active_session') && !gameState.roomId && (
-                  <button 
-                    onClick={handleRejoinSector}
-                    className="w-full py-1.5 bg-zinc-800 text-orange-500 font-black uppercase italic tracking-widest rounded-sm border border-orange-500/30 hover:bg-orange-500/10 hover:border-orange-500 transition-all flex items-center justify-center gap-2 text-[10px] animate-pulse"
-                  >
-                    <History className="w-3 h-3" /> Rejoin Sector
-                  </button>
-                )}
-
-                <div className="h-px bg-zinc-800 my-0.5" />
-
-                <div className="grid grid-cols-3 gap-1">
-                  <button 
-                    onClick={() => setShowProfile(true)}
-                    className="py-1.5 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all text-[8px] flex items-center justify-center gap-1"
-                  >
-                    Profile
-                  </button>
-                  <button 
-                    onClick={() => setShowArchives(true)}
-                    className="py-1.5 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all text-[8px]"
-                  >
-                    Archives
-                  </button>
-                  <button 
-                    onClick={() => setShowSettings(true)}
-                    className="py-1.5 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-900 transition-all text-[8px]"
-                  >
-                    Settings
-                  </button>
-                </div>
-
               </div>
             </motion.div>
           ) : (
