@@ -45,7 +45,9 @@ import {
   X,
   ShieldCheck,
   Music,
-  RotateCcw
+  RotateCcw,
+  SkipBack,
+  SkipForward
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { db } from './firebase';
@@ -102,21 +104,15 @@ const PRELOAD_ASSETS = [
 ];
 
 const LOBBY_MUSIC_TRACKS = [
-  "Battleplan Extinguished Sins - Monster Siren Records - Topic (128k).mp3",
-  "Battleplan Pyrolysis - Monster Siren Records - Topic (128k).mp3",
-  "Battleplan Underdawn - Monster Siren Records - Topic (128k).mp3",
-  "Operation Ashring - Monster Siren Records - Topic (128k).mp3",
-  "Operation Basepoint - Monster Siren Records - Topic (128k).mp3",
-  "Operation Blade - Monster Siren Records - Topic (128k).mp3",
-  "Operation Cinder - Monster Siren Records - Topic (128k).mp3",
-  "Operation Dawnseeker - Monster Siren Records - Topic (128k).mp3",
-  "Operation Deepness - Release - Topic (128k).mp3",
-  "Operation Fake Waves - Monster Siren Records - Topic (128k).mp3",
-  "Operation Lead Seal - David Westbom - Topic (128k).mp3",
-  "Operation Pine Soot - Monster Siren Records - Topic (128k).mp3",
-  "Operation Pyrite - Monster Siren Records - Topic (128k).mp3",
-  "Operation Spectrum - Steven Grove - Topic (128k).mp3",
-  "Operation Wild Scales - David Westbom - Topic (128k).mp3"
+  "lobby_1.mp3", "lobby_2.mp3", "lobby_3.mp3", "lobby_4.mp3", "lobby_5.mp3",
+  "lobby_6.mp3", "lobby_7.mp3", "lobby_8.mp3", "lobby_9.mp3", "lobby_10.mp3",
+  "lobby_11.mp3", "lobby_12.mp3", "lobby_13.mp3", "lobby_14.mp3", "lobby_15.mp3"
+];
+
+const LOBBY_MUSIC_METADATA = [
+  "Extinguished Sins", "Pyrolysis", "Underdawn", "Ashring", "Basepoint",
+  "Blade", "Cinder", "Dawnseeker", "Deepness", "Fake Waves",
+  "Lead Seal", "Pine Soot", "Pyrite", "Spectrum", "Wild Scales"
 ];
 
 const LoadingScreen = ({ progress }: { progress: number }) => {
@@ -300,6 +296,13 @@ const App: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [boardScale, setBoardScale] = useState(1);
 
+  const addToLog = useCallback((msg: string) => {
+    setGameState(prev => ({
+      ...prev,
+      log: [msg, ...prev.log].slice(0, 50) // Reduced to 50 for performance
+    }));
+  }, []);
+
   const SearchingOverlay = () => (
     <motion.div
       initial={{ opacity: 0 }}
@@ -428,28 +431,51 @@ const App: React.FC = () => {
     };
   });
 
+  const [settings, setSettings] = useState({
+    volume: 50,
+    soundEnabled: true,
+    animationSpeed: 1, // 0.5, 1, 1.5
+    showGrid: true
+  });
+
   const [currentMusicIndex, setCurrentMusicIndex] = useState(() => Math.floor(Math.random() * LOBBY_MUSIC_TRACKS.length));
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  const nextMusic = useCallback(() => {
+    setCurrentMusicIndex(prev => (prev + 1) % LOBBY_MUSIC_TRACKS.length);
+  }, []);
+
+  const prevMusic = useCallback(() => {
+    setCurrentMusicIndex(prev => (prev - 1 + LOBBY_MUSIC_TRACKS.length) % LOBBY_MUSIC_TRACKS.length);
+  }, []);
+
+  const changeMusic = useCallback(() => {
+    let nextIndex;
+    do {
+      nextIndex = Math.floor(Math.random() * LOBBY_MUSIC_TRACKS.length);
+    } while (nextIndex === currentMusicIndex && LOBBY_MUSIC_TRACKS.length > 1);
+    setCurrentMusicIndex(nextIndex);
+  }, [currentMusicIndex]);
+
   useEffect(() => {
-    // Only play if not in game and not already playing
-    if (!gameState.gameStarted && !audioRef.current) {
+    // Phase 1: Cleanup old audio if it exists and we're changing tracks or entering game
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    // Phase 2: Start new audio if not in game
+    if (!gameState.gameStarted) {
       audioRef.current = new Audio(`/Resources/Lobby Music/${LOBBY_MUSIC_TRACKS[currentMusicIndex]}`);
       audioRef.current.loop = true;
-      audioRef.current.volume = 0.4;
+      audioRef.current.volume = settings.volume / 200; // Calibrated volume
       
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          console.log("Autoplay prevented. User interaction required.");
+          console.log("Autoplay prevented or interrupted.");
         });
       }
-    }
-
-    // Stop music if game starts
-    if (gameState.gameStarted && audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
     }
 
     return () => {
@@ -458,20 +484,7 @@ const App: React.FC = () => {
         audioRef.current = null;
       }
     };
-  }, [gameState.gameStarted, currentMusicIndex]);
-
-  const changeMusic = () => {
-    let nextIndex;
-    do {
-      nextIndex = Math.floor(Math.random() * LOBBY_MUSIC_TRACKS.length);
-    } while (nextIndex === currentMusicIndex && LOBBY_MUSIC_TRACKS.length > 1);
-    
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    setCurrentMusicIndex(nextIndex);
-  };
+  }, [gameState.gameStarted, currentMusicIndex, settings.volume]);
 
   useEffect(() => {
     localStorage.setItem('arknights_monopoly_profile', JSON.stringify(profile));
@@ -521,12 +534,6 @@ const App: React.FC = () => {
     });
   }, []);
 
-  const [settings, setSettings] = useState({
-    volume: 50,
-    soundEnabled: true,
-    animationSpeed: 1, // 0.5, 1, 1.5
-    showGrid: true
-  });
   const [isMoving, setIsMoving] = useState(false);
   const tiles = gameState.tiles;
   const [previewOperator, setPreviewOperator] = useState<any>(null);
@@ -1916,12 +1923,6 @@ const App: React.FC = () => {
   };
 
 
-  const addToLog = (msg: string) => {
-    setGameState(prev => ({
-      ...prev,
-      log: [msg, ...prev.log].slice(0, 20)
-    }));
-  };
 
   const nextTurn = useCallback(() => {
     if (gameState.players.length === 0) return;
@@ -3288,6 +3289,43 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Enhanced Music Controls */}
+                  <div className="flex flex-col gap-4 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center border border-orange-500/30">
+                        <Music className="w-5 h-5 text-orange-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Tactical Sound System</div>
+                        <div className="text-sm font-black italic uppercase tracking-tighter text-white truncate">
+                          {LOBBY_MUSIC_METADATA[currentMusicIndex]}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between gap-2">
+                      <button 
+                        onClick={prevMusic}
+                        className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-orange-500/50 transition-all flex items-center justify-center"
+                      >
+                        <SkipBack className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={changeMusic}
+                        className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-orange-500/50 transition-all flex items-center justify-center gap-2"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        <span className="text-[8px] font-black uppercase">Shuffle</span>
+                      </button>
+                      <button 
+                        onClick={nextMusic}
+                        className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-orange-500/50 transition-all flex items-center justify-center"
+                      >
+                        <SkipForward className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col gap-3">
                     <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Sound Effects</label>
                     <button
@@ -3505,6 +3543,27 @@ const App: React.FC = () => {
                   <span className="text-orange-500">Monopoly</span>
                 </h1>
                 <p className="text-zinc-500 font-mono text-[8px] md:text-[10px] tracking-[0.2em] uppercase">Strategic Asset Acquisition Protocol</p>
+                
+                {/* Lobby Music Quick Widget */}
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="w-full max-w-[280px] bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-3 mt-2 mb-2"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center shrink-0">
+                    <Music className="w-4 h-4 text-orange-500 animate-spin-slow" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-0.5 leading-none">Atmospheric Signal</div>
+                    <div className="text-[10px] font-black italic uppercase tracking-tight text-white truncate leading-none">
+                      {LOBBY_MUSIC_METADATA[currentMusicIndex]}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={prevMusic} className="p-1.5 text-zinc-500 hover:text-orange-500 transition-colors"><SkipBack className="w-3.5 h-3.5" /></button>
+                    <button onClick={nextMusic} className="p-1.5 text-zinc-500 hover:text-orange-500 transition-colors"><SkipForward className="w-3.5 h-3.5" /></button>
+                  </div>
+                </motion.div>
                 
                 {/* Tactical Link Status */}
                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-black/40 border border-zinc-800 rounded-full mt-1">
