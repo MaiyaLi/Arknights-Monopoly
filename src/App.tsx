@@ -3681,23 +3681,6 @@ const App: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="mt-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                      <Music className="w-3 h-3" /> Mission Soundtrack
-                    </div>
-                    <button 
-                      onClick={changeMusic}
-                      className="p-1 hover:bg-zinc-800 rounded-full text-zinc-500 hover:text-orange-500 transition-colors"
-                      title="Next Track (Random)"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div className="text-[9px] font-bold text-zinc-400 italic truncate uppercase tracking-tighter">
-                    {LOBBY_MUSIC_TRACKS[currentMusicIndex].replace(' - Monster Siren Records - Topic (128k).mp3', '').replace('.mp3', '')}
-                  </div>
-                </div>
               </div>
             </motion.div>
           ) : (
