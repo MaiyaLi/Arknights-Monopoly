@@ -594,10 +594,22 @@ async function startServer() {
         if (player) {
           const oldId = player.id;
           player.id = socket.id;
+          
+          // Force-update the player ID in the gameState to prevent stale references
           if (room.gameState && room.gameState.players) {
-            const gsPlayer = room.gameState.players.find((p: any) => (playerEmail && p.email === playerEmail) || (!playerEmail && p.name === playerName));
-            if (gsPlayer) gsPlayer.id = socket.id;
+            const gsPlayer = room.gameState.players.find((p: any) => 
+              (playerEmail && p.email === playerEmail) || 
+              (!playerEmail && p.name === playerName) ||
+              (p.id === oldId)
+            );
+            if (gsPlayer) {
+              gsPlayer.id = socket.id;
+              console.log(`[Sector Sync] Updated gameState ID for ${playerName}: ${oldId} -> ${socket.id}`);
+            }
           }
+          
+          socket.emit('id-synced', { newId: socket.id });
+          io.to(roomId).emit('player-synced', { playerName, newId: socket.id });
           io.to(roomId).emit('player-id-synced', { oldId, newId: socket.id, playerName: player.name });
         }
       }

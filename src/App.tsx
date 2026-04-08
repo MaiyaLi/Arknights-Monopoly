@@ -383,6 +383,7 @@ const App: React.FC = () => {
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
   const [missionCountdown, setMissionCountdown] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showForfeitConfirm, setShowForfeitConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<'board' | 'players' | 'log' | 'property'>('board');
   const [showArchives, setShowArchives] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -1446,9 +1447,16 @@ const App: React.FC = () => {
     localStorage.removeItem('arknights_monopoly_active_session');
   };
 
-  const currentPlayer = (gameState.players && gameState.players.length > 0 && gameState.currentPlayerIndex >= 0) 
-    ? (gameState.players[gameState.currentPlayerIndex] || gameState.players[0]) 
-    : null;
+  const currentPlayer = useMemo(() => {
+    if (!gameState.players || gameState.players.length === 0) return null;
+    const index = gameState.currentPlayerIndex;
+    // Defensive Boundary check
+    if (index < 0 || index >= gameState.players.length) {
+      console.warn(`[Sync Warning] Invalid currentPlayerIndex: ${index}. Falling back to index 0.`);
+      return gameState.players[0];
+    }
+    return gameState.players[index];
+  }, [gameState.players, gameState.currentPlayerIndex]);
 
   const localPlayer = useMemo(() => {
     if (!gameState.players || gameState.players.length === 0) return null;
@@ -1966,6 +1974,7 @@ const App: React.FC = () => {
       setTimeout(() => {
         socket.emit('next-turn', { roomId: gameState.roomId, nextIndex });
         // Force a supplemental sync to ensure everyone has the definitive final state of the previous player
+        // We explicitly pass the nextIndex to ensure the server and all clients align
         const { chatMessages, ...stateToSync } = { ...gameState, currentPlayerIndex: nextIndex, hasRolled: false, isRolling: false };
         socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: stateToSync });
       }, 100);
@@ -3357,10 +3366,8 @@ const App: React.FC = () => {
                   <div className="mt-8 pt-6 border-t border-zinc-800">
                     <button 
                       onClick={() => {
-                        if (window.confirm("ARE YOU SURE YOU WANT TO ABORT THE MISSION? THIS ACTION IS PERMANENT.")) {
-                          handleBankruptcy(localPlayer);
-                          setShowSettings(false);
-                        }
+                        setShowForfeitConfirm(true);
+                        setShowSettings(false);
                       }}
                       className="w-full py-4 bg-red-900/50 border border-red-500/30 hover:bg-red-500/20 text-red-500 font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 group"
                     >
@@ -3716,10 +3723,10 @@ const App: React.FC = () => {
           ) : (
             <motion.div 
               key="char-select"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden p-1 md:p-0 relative"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden relative"
             >
               {/* Mission Start Countdown Overlay */}
               <AnimatePresence>
@@ -3728,104 +3735,69 @@ const App: React.FC = () => {
                     initial={{ opacity: 0, scale: 1.5 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.5 }}
-                    className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md pointer-events-none"
+                    className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-none"
                   >
-                    <div className="text-[10px] font-black text-orange-500 uppercase tracking-[0.5em] mb-2 animate-pulse">DEPLOYMENT IMMINENT</div>
-                    <div className="text-9xl font-black italic text-white drop-shadow-[0_0_30px_rgba(255,140,0,0.5)]">
+                    <div className="text-sm font-black text-orange-500 uppercase tracking-[1em] mb-4 animate-pulse">DEPLOYMENT IMMINENT</div>
+                    <div className="text-[12rem] font-black italic text-white drop-shadow-[0_0_50px_rgba(255,140,0,0.6)] leading-none">
                       {missionCountdown}
                     </div>
-                    <div className="mt-4 px-6 py-2 bg-orange-500 text-black text-xs font-black uppercase italic tracking-widest skew-x-[-12deg]">
+                    <div className="mt-8 px-10 py-3 bg-orange-500 text-black text-lg font-black uppercase italic tracking-[0.3em] skew-x-[-15deg] shadow-[0_0_30px_rgba(249,115,22,0.5)]">
                       Synchronizing Tactical Data
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-1 gap-2 shrink-0">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-sm md:text-xl font-black italic uppercase tracking-tighter shrink-0 flex items-center gap-2">
-                    Select <span className="text-orange-500">Operator</span>
-                    <span className="text-[7px] text-zinc-700 font-mono tracking-tighter px-1 border border-zinc-800/50 rounded bg-black/20">V7-STABLE</span>
-                  </h2>
-                  
-                  {/* Tactical Link Indicator */}
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-zinc-900/50 border border-zinc-800/50">
-                    <motion.div 
-                      animate={{ 
-                        opacity: isConnected ? [0.4, 1, 0.4] : 1,
-                        scale: isConnected ? [0.8, 1.1, 0.8] : 1 
-                      }}
-                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                      className={`w-2 h-2 rounded-full shadow-[0_0_8px] ${
-                        isConnected ? 'bg-green-500 shadow-green-500/50' : 'bg-red-500 shadow-red-500/50'
-                      }`}
-                    />
-                    <span className={`text-[8px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500/70' : 'text-red-500/70'}`}>
-                      {isConnected ? 'Link: Stable' : 'Link: Lost'}
-                    </span>
+              {/* Tactical Header */}
+              <div className="flex items-center justify-between border-b-2 border-zinc-800 pb-3 gap-6 shrink-0 bg-zinc-950/50 p-4 rounded-t-2xl">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-orange-500 flex items-center justify-center rounded-lg skew-x-[-10deg] shadow-[0_0_15px_rgba(249,115,22,0.3)]">
+                    <Shield className="w-6 h-6 text-black" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+                      Operator <span className="text-orange-500 underline decoration-2 underline-offset-4">Identification</span>
+                    </h2>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-zinc-500 font-mono tracking-widest uppercase">Protocol: STABLE-V7</span>
+                      <div className="w-1 h-1 rounded-full bg-zinc-700" />
+                      <div className="flex items-center gap-1.5">
+                        <motion.div 
+                          animate={{ opacity: [0.4, 1, 0.4] }}
+                          transition={{ duration: 2, repeat: Infinity }}
+                          className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
+                        />
+                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Node: {isConnected ? 'Active' : 'Offline'}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 
                 {gameState.roomId && (
-                  <div className="flex-1 flex items-center justify-center gap-4 px-4 overflow-hidden">
-                    <div className="hidden sm:flex flex-col items-start min-w-0">
-                      <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-0.5">Mission Sector</div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-[10px] font-mono text-orange-500 font-bold tracking-widest truncate">{gameState.roomId}</div>
-                        <button 
-                          onClick={copyRoomId}
-                          className={`p-1 rounded transition-all ${copySuccess ? 'bg-green-500/20 text-green-500' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'}`}
-                          title="Copy Mission Code"
-                        >
-                          {copySuccess ? <CheckCircle2 className="w-3 h-3" /> : <Save className="w-3 h-3" />}
+                  <div className="flex items-center gap-6">
+                    <div className="flex flex-col items-end">
+                      <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Sector Code</div>
+                      <div className="flex items-center gap-2 bg-zinc-900 px-3 py-1 rounded border border-zinc-800">
+                        <code className="text-sm font-mono text-orange-500 font-bold tracking-[0.2em]">{gameState.roomId}</code>
+                        <button onClick={copyRoomId} className="text-zinc-600 hover:text-orange-400 transition-colors">
+                          {copySuccess ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Save className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
                     
-                  <div className="h-6 w-px bg-zinc-800 hidden sm:block" />
-
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <div className="text-[8px] font-black text-zinc-500 uppercase tracking-widest leading-none hidden sm:block">Operators</div>
-                      <div className="flex -space-x-1.5 shrink-0">
-                        {Array.isArray(gameState.players) && gameState.players.length > 0 ? (
-                          gameState.players.map(p => {
-                            // DEBUG: Log player data to browser console
-                            console.log(`[Sector Sync] Player: ${p.name}, AvatarId: ${p.avatarId}, Status: ${p.status}`);
-                            const playerAvatar = AVATARS.find(a => a.id === p.avatarId) || AVATARS[0];
-                            const isReady = p.status === 'READY' || p.operator;
-                            const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
-                            const selectedOp = pOpName ? OPERATORS.find(o => o.name === pOpName) : null;
-                            
-                            return (
-                              <div key={p.id} className="flex flex-col items-center gap-0.5">
-                                <div className={`relative w-6 h-6 md:w-8 md:h-8 rounded-full border-2 overflow-hidden transition-all ${isReady ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'border-zinc-800 bg-zinc-900'}`} title={p.name}>
-                                  <img 
-                                    src={playerAvatar.url} 
-                                    alt={p.name} 
-                                    className={`w-full h-full object-cover ${isReady ? 'brightness-110' : 'grayscale'}`}
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  {isReady && (
-                                    <div className="absolute inset-0 bg-green-500/10 flex items-center justify-center">
-                                      <CheckCircle2 className="w-3 h-3 md:w-4 md:h-4 text-green-500 drop-shadow-md" />
-                                    </div>
-                                  )}
-                                  {selectedOp && (
-                                    <div className="absolute -bottom-1 -right-1 w-3 h-3 md:w-4 md:h-4 rounded-full border border-black overflow-hidden z-10 bg-zinc-900 shadow-sm">
-                                      <img src={selectedOp.portrait} className="w-full h-full object-cover" alt="Op" />
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="text-[5px] md:text-[6px] font-black uppercase text-zinc-500 truncate max-w-[32px] md:max-w-[40px] text-center">{p.name}</div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <div className="text-[10px] text-zinc-500 font-mono italic">Sector scanning...</div>
-                        )}
-                        {Array.isArray(gameState.players) && Array.from({ length: Math.max(0, 4 - gameState.players.length) }).map((_, i) => (
-                          <div key={i} className="w-5 h-5 md:w-7 md:h-7 rounded-full border-2 border-zinc-900 bg-zinc-900/50 flex items-center justify-center ring-1 ring-zinc-800 border-dashed">
-                            <Users className="w-2.5 h-2.5 md:w-3.5 h-3.5 text-zinc-800" />
+                    <div className="h-10 w-px bg-zinc-800" />
+                    
+                    <div className="flex flex-col items-start min-w-[120px]">
+                      <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Squad Presence</div>
+                      <div className="flex -space-x-2">
+                        {gameState.players.map(p => (
+                          <div key={p.id} className={`w-8 h-8 rounded-full border-2 overflow-hidden bg-zinc-900 transition-all ${p.operator ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-zinc-800'}`} title={p.name}>
+                            <img src={AVATARS.find(a => a.id === p.avatarId)?.url || AVATARS[0].url} alt={p.name} className={`w-full h-full object-cover ${p.operator ? '' : 'grayscale opacity-50'}`} />
+                          </div>
+                        ))}
+                        {Array.from({ length: 4 - gameState.players.length }).map((_, i) => (
+                          <div key={i} className="w-8 h-8 rounded-full border-2 border-zinc-800 border-dashed bg-zinc-900/30 flex items-center justify-center">
+                            <Users className="w-3 h-3 text-zinc-800" />
                           </div>
                         ))}
                       </div>
@@ -3833,125 +3805,97 @@ const App: React.FC = () => {
 
                     {gameState.isHost ? (
                       <button 
-                        onClick={() => {
-                          if (socket && gameState.roomId) {
-                            socket.emit('start-game', gameState.roomId);
-                          }
-                        }}
+                        onClick={() => socket?.emit('start-game', gameState.roomId)}
                         disabled={gameState.players.length < 2 || !gameState.players.every(p => p.operator !== null)}
-                        className={`w-auto px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition-all font-black text-[10px] md:text-xs tracking-widest uppercase italic overflow-hidden relative group/start shrink-0 ${
+                        className={`px-6 py-2.5 rounded-lg flex items-center gap-3 transition-all font-black text-xs tracking-widest uppercase italic shadow-2xl ${
                           gameState.players.length >= 2 && gameState.players.every(p => p.operator !== null)
-                            ? 'bg-gradient-to-r from-orange-600 to-orange-400 text-black shadow-[0_0_20px_rgba(249,115,22,0.4)] hover:scale-[1.02] active:scale-95 cursor-pointer' 
-                            : 'bg-zinc-900 border border-zinc-800 text-zinc-600 cursor-not-allowed'
+                            ? 'bg-orange-500 text-black hover:bg-orange-400 hover:scale-[1.05] active:scale-95' 
+                            : 'bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
                         }`}
                       >
-                        {gameState.players.length >= 2 && gameState.players.every(p => p.operator !== null) && (
-                          <motion.div 
-                            animate={{ x: ['-100%', '200%'] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]"
-                          />
-                        )}
-                        <Play className={`w-4 h-4 ${gameState.players.length >= 2 && gameState.players.every(p => p.operator !== null) ? 'animate-pulse' : ''}`} /> 
-                        {gameState.players.length < 2 
-                          ? `SQUAD: ${gameState.players.length}/2+` 
-                          : !gameState.players.every(p => p.operator !== null)
-                            ? 'SYNCING DEPLOYMENT...'
-                            : 'Deploy Squad'}
+                        <Play className="w-4 h-4" /> Start Operation
                       </button>
                     ) : (
-                      <div className="px-3 py-1.5 bg-zinc-800/50 border border-zinc-700 text-zinc-400 font-black uppercase italic tracking-widest rounded-sm text-[9px] md:text-[11px] flex items-center gap-2">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Awaiting Command
+                      <div className="px-4 py-2 bg-zinc-900/80 border border-zinc-800 rounded-lg text-zinc-500 text-[10px] font-black uppercase italic tracking-widest flex items-center gap-2">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Awaiting Directive
                       </div>
                     )}
                   </div>
                 )}
+                
                 <button 
                   onClick={() => {
-                    if (gameState.roomId && socket) {
-                      socket.emit('leave-room', gameState.roomId);
-                    }
+                    if (gameState.roomId && socket) socket.emit('leave-room', gameState.roomId);
                     setShowCharacterSelect(false);
                     setPreviewOperator(null);
                     setGameState(prev => ({ ...prev, gameMode: null, roomId: null, isHost: false, players: [] }));
                   }}
-                  className="text-zinc-500 hover:text-white transition-colors p-1"
+                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-red-950/20 text-red-500 border border-red-900/30 hover:bg-red-600 hover:text-white transition-all"
                 >
-                  <LogOut className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                  <LogOut className="w-5 h-5" />
                 </button>
               </div>
 
-              <div className="flex-1 flex flex-col gap-1 overflow-hidden mt-1">
-                <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
-                  <div className="grid grid-cols-5 gap-1 md:gap-2 pb-2">
+              {/* Main Selection Area - Split Pane */}
+              <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden mt-4 p-4 lg:p-0">
+                {/* Left: Interactive Grid */}
+                <div className="flex-1 overflow-y-auto no-scrollbar pr-2">
+                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-8">
                     {OPERATORS.map((op) => {
-                      // Robust check: Derived from list + players array for absolute sync
-                      const isSelectedByPlayer = gameState.players.some(p => {
-                        const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
-                        return pOpName === op.name;
-                      });
-                      const isSelected = selectedOperators.includes(op.name) || isSelectedByPlayer;
-                      const isPreview = previewOperator?.name === op.name;
-                      // Improved player identification in the grid
                       const selectingPlayer = gameState.players.find(p => {
                         const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
                         return pOpName === op.name;
                       });
-                      
+                      const isSelected = !!selectingPlayer;
+                      const isPreview = previewOperator?.name === op.name;
                       const isMySelection = selectingPlayer && selectingPlayer.id === socket?.id;
                       
                       return (
                         <motion.div
                           key={op.name}
-                          whileHover={!isSelected || isMySelection ? { scale: 1.02 } : {}}
-                          whileTap={!isSelected || isMySelection ? { scale: 0.98 } : {}}
-                          onClick={() => {
-                            if (!isSelected || isMySelection) {
-                              setPreviewOperator(op);
-                            }
-                          }}
-                          className={`group relative aspect-[3/4] border rounded-md overflow-hidden transition-all ${
+                          whileHover={!isSelected || isMySelection ? { y: -5, scale: 1.02 } : {}}
+                          onClick={() => (!isSelected || isMySelection) && setPreviewOperator(op)}
+                          className={`group relative aspect-[3/4.2] rounded-xl overflow-hidden cursor-pointer transition-all duration-300 border-2 ${
                             isSelected && !isMySelection 
-                              ? 'bg-zinc-800/40 border-zinc-900 opacity-50 cursor-not-allowed grayscale' 
+                              ? 'border-zinc-900 grayscale opacity-40' 
                               : isPreview 
-                                ? 'bg-zinc-900 border-orange-500 ring-2 ring-orange-500/50 cursor-pointer shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
+                                ? 'border-orange-500 ring-4 ring-orange-500/20 shadow-[0_0_30px_rgba(249,115,22,0.4)]' 
                                 : isMySelection
-                                  ? 'bg-zinc-900 border-green-500/50 cursor-pointer ring-1 ring-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                                  : 'bg-zinc-900 border-zinc-800 cursor-pointer hover:border-orange-500'
+                                  ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]'
+                                  : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-800'
                           }`}
                         >
-                          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10" />
+                          <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/60 to-transparent z-10" />
                           <img 
                             src={op.portrait} 
                             alt={op.name} 
+                            className={`absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 ${isSelected && !isMySelection ? 'grayscale' : ''}`}
                             referrerPolicy="no-referrer"
-                            className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${isSelected && !isMySelection ? 'grayscale' : 'grayscale group-hover:grayscale-0'}`}
                           />
-                          <div className="absolute bottom-0 left-0 w-full p-1 md:p-1.5 z-20">
-                            <div className="text-[5px] md:text-[8px] font-mono text-orange-500 mb-0 truncate">{op.title}</div>
-                            <div className="text-[8px] md:text-xs font-black italic uppercase tracking-tighter leading-none truncate">{op.name}</div>
+                          
+                          {/* Operator Metadata */}
+                          <div className="absolute bottom-0 left-0 w-full p-2.5 z-20">
+                            <div className="text-[7px] font-mono text-orange-500 font-bold tracking-widest uppercase mb-0.5">{op.title}</div>
+                            <div className="text-sm font-black italic uppercase tracking-tighter leading-none group-hover:text-orange-500 transition-colors">{op.name}</div>
                           </div>
                           
-                          {/* Corner Accent */}
-                          <div className={`absolute top-1 right-1 w-1 h-1 md:w-1.5 md:h-1.5 rounded-full z-20 ${isPreview ? 'animate-ping' : ''}`} style={{ backgroundColor: op.color }} />
-                          
+                          {/* Class Indicator Overlay */}
+                          <div className="absolute top-2 right-2 flex flex-col items-center gap-1 z-20">
+                            <div className="w-2 h-2 rounded-full shadow-[0_0_8px]" style={{ backgroundColor: op.color }} />
+                            {isPreview && <motion.div layoutId="selection-glow" className="absolute -inset-1 border border-orange-500 rounded-full animate-ping" />}
+                          </div>
+
+                          {/* Status Overlays */}
                           {isSelected && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center z-30 bg-black/75 backdrop-blur-[1.5px] transition-all">
+                            <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-2 text-center">
                               {isMySelection ? (
-                                <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
-                                  <div className="bg-green-500/20 p-1.5 md:p-2 rounded-full border border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.4)] mb-1">
-                                    <CheckCircle2 className="w-5 h-5 md:w-8 md:h-8 text-green-500" />
-                                  </div>
-                                  <div className="text-[7px] md:text-[10px] font-black text-green-500 uppercase tracking-widest bg-black/60 px-2 py-0.5 rounded border border-green-500/30">Deployed</div>
+                                <div className="animate-in zoom-in duration-300">
+                                  <div className="bg-green-500 text-black px-3 py-1 text-[10px] font-black uppercase italic tracking-widest skew-x-[-10deg] shadow-lg">Deployed</div>
                                 </div>
                               ) : (
-                                <div className="flex flex-col items-center w-full px-1">
-                                  <div className="bg-red-600 text-white font-black uppercase italic tracking-[0.2em] text-[7px] md:text-[11px] px-2 md:px-4 py-1 shadow-[0_0_15px_rgba(239,68,68,0.5)] rotate-[-12deg] border border-red-400 mb-2">Deployed</div>
-                                  {selectingPlayer && (
-                                    <div className="text-[5px] md:text-[8px] font-mono text-zinc-100 uppercase tracking-tighter bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-sm shadow-md truncate max-w-[95%]">
-                                      {selectingPlayer.name}
-                                    </div>
-                                  )}
+                                <div className="flex flex-col items-center gap-2">
+                                  <div className="bg-red-600 text-white px-3 py-0.5 text-[8px] font-black uppercase tracking-widest border border-red-400">Locked</div>
+                                  <div className="text-[10px] font-mono text-zinc-300 truncate w-full px-1">{selectingPlayer.name}</div>
                                 </div>
                               )}
                             </div>
@@ -3962,71 +3906,166 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {previewOperator && (() => {
-                  const isSelectedByOthers = selectedOperators.includes(previewOperator.name) && 
-                    !gameState.players.find(p => p.id === socket?.id && (p.operator === previewOperator.name || p.operator?.name === previewOperator.name));
-                  
-                  return (
+                {/* Right: Intelligence Dossier */}
+                <AnimatePresence mode="wait">
+                  {previewOperator ? (
                     <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="w-full flex flex-col items-center gap-1 p-1.5 md:p-2 bg-zinc-900 border-t border-orange-500/30 shadow-[0_-10px_20px_rgba(0,0,0,0.5)] shrink-0"
+                      key={previewOperator.name}
+                      initial={{ opacity: 0, x: 50 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 50 }}
+                      className="w-full lg:w-[400px] shrink-0 bg-zinc-900/80 backdrop-blur-md rounded-2xl border-l border-zinc-800 flex flex-col p-6 shadow-2xl relative overflow-hidden"
                     >
-                    <div className="flex flex-row items-center gap-2 md:gap-4 w-full max-w-2xl overflow-hidden">
-                      <div className="flex gap-1.5 shrink-0">
-                        <div className="w-8 h-8 md:w-14 md:h-14 rounded border border-zinc-800 overflow-hidden shrink-0 bg-zinc-950">
+                      {/* Dossier Background Decoration */}
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-[80px] rounded-full pointer-events-none" />
+                      
+                      <div className="relative z-10 flex-1 flex flex-col min-h-0">
+                        {/* Dossier Header */}
+                        <div className="flex items-start justify-between mb-6">
+                          <div>
+                            <div className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mb-1">Intelligence File</div>
+                            <h3 className="text-4xl font-black italic tracking-tighter uppercase leading-none">{previewOperator.name}</h3>
+                            <div className="text-xs font-mono text-zinc-5500 mt-1 uppercase tracking-widest">{previewOperator.title}</div>
+                          </div>
+                          <div className="w-12 h-12 bg-zinc-950 border border-zinc-800 rounded-xl p-1 shrink-0">
+                            <div className="w-full h-full rounded-lg" style={{ backgroundColor: previewOperator.color }} />
+                          </div>
+                        </div>
+
+                        {/* Large Portrait Preview */}
+                        <div className="aspect-[4/5] w-full rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait mb-6">
+                          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent z-10" />
                           <img 
-                            src={AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url} 
-                            alt="Avatar" 
-                            className="w-full h-full object-cover"
+                            src={previewOperator.portrait} 
+                            alt={previewOperator.name} 
+                            className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" 
                             referrerPolicy="no-referrer"
                           />
+                          <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
+                             <div className="bg-black/80 backdrop-blur px-2 py-1 border border-zinc-800 text-[8px] font-mono text-zinc-400">COORD: {Math.floor(Math.random()*900)},{Math.floor(Math.random()*900)}</div>
+                             <div className="bg-orange-500/10 backdrop-blur px-2 py-1 border border-orange-500/30 text-[8px] font-black text-orange-500 italic">SYSTEM READY</div>
+                          </div>
                         </div>
-                        <div className="w-8 h-8 md:w-14 md:h-14 rounded border border-orange-500 overflow-hidden shrink-0 shadow-lg shadow-orange-500/20 bg-zinc-950">
-                          <img src={previewOperator.portrait} alt={previewOperator.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+
+                        {/* Skill Intel */}
+                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4">
+                          <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                            <div className="flex items-center gap-2 mb-2 text-orange-500">
+                              <Zap className="w-4 h-4 fill-orange-500/20" />
+                              <span className="text-xs font-black uppercase tracking-widest">Tactical Skill: {previewOperator.skill.name}</span>
+                            </div>
+                            <p className="text-sm text-zinc-400 leading-relaxed italic">{previewOperator.skill.description}</p>
+                          </div>
+                          
+                          <div className="p-4 border-l-2 border-orange-500 bg-zinc-900/50">
+                            <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Operator Profile</div>
+                            <p className="text-sm text-zinc-300 font-medium italic">"{previewOperator.description}"</p>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="mt-6 flex flex-col gap-3">
+                          {(() => {
+                            const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
+                              !gameState.players.find(p => p.id === socket?.id && (typeof p.operator === 'string' ? p.operator : p.operator?.name) === previewOperator.name);
+                            
+                            return (
+                              <button 
+                                onClick={() => startGame(previewOperator)}
+                                disabled={isSelectedByOther}
+                                className={`w-full py-4 font-black uppercase italic tracking-[0.2em] rounded-xl transition-all shadow-2xl flex items-center justify-center gap-3 overflow-hidden relative group/confirm ${
+                                  isSelectedByOther 
+                                    ? 'bg-zinc-800 text-zinc-600 border border-zinc-700 cursor-not-allowed' 
+                                    : 'bg-orange-500 text-black hover:bg-orange-400 hover:scale-[1.02]'
+                                }`}
+                              >
+                                {!isSelectedByOther && (
+                                  <motion.div animate={{ x: ['-100%', '200%'] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]" />
+                                )}
+                                <Shield className="w-5 h-5" />
+                                {isSelectedByOther ? 'Operator Deployed' : 'Initialize Deployment'}
+                              </button>
+                            );
+                          })()}
+                          <button 
+                            onClick={() => setPreviewOperator(null)}
+                            className="w-full py-3 bg-zinc-800/50 border border-zinc-800 text-zinc-500 text-xs font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-800 hover:text-white transition-all"
+                          >
+                            Return to Grid
+                          </button>
                         </div>
                       </div>
-                      <div className="flex-1 text-left min-w-0">
-                        <div className="text-[5px] md:text-[8px] font-black text-orange-500 uppercase tracking-[0.2em] mb-0 flex items-center gap-2">
-                          {previewOperator.title}
-                          <span className="text-zinc-600 px-1 border border-zinc-800 rounded bg-black/40 tracking-widest font-mono scale-[0.8]">{previewOperator.skill.name}</span>
-                        </div>
-                        <div className="text-xs md:text-xl font-black italic uppercase tracking-tighter leading-tight truncate">{previewOperator.name}</div>
-                        <p className="text-zinc-300 text-[5px] md:text-[9px] leading-tight max-w-xs italic line-clamp-2 md:line-clamp-none">"{previewOperator.description}"</p>
-                        <div className="flex items-center gap-1.5 mt-1 text-orange-400 font-mono text-[6px] md:text-[9px] bg-black/30 p-1 rounded inline-block">
-                          <Zap className="w-2.5 h-2.5 md:w-3 md:h-3" />
-                          <span className="font-black uppercase tracking-tighter text-[5px] md:text-[7px]">PASSIVE:</span> {previewOperator.skill.description}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1 w-20 md:w-32 shrink-0">
-                        <button 
-                          onClick={() => startGame(previewOperator)}
-                          disabled={isSelectedByOthers}
-                          className={`w-full px-2 md:px-4 py-1 md:py-1.5 font-black uppercase italic tracking-widest rounded-sm transition-all shadow-lg flex items-center justify-center gap-1 group text-[8px] md:text-[10px] ${
-                            isSelectedByOthers
-                              ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
-                              : 'bg-orange-500 text-black hover:bg-orange-400 shadow-orange-500/20'
-                          }`}
-                        >
-                          <Shield className={`w-3 h-3 ${!isSelectedByOthers ? 'group-hover:rotate-12 transition-transform' : ''}`} />
-                          {isSelectedByOthers ? 'Deployed' : 'Confirm'}
-                        </button>
-                        <button 
-                          onClick={() => setPreviewOperator(null)}
-                          className="w-full px-2 md:px-4 py-0.5 md:py-1 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm hover:text-zinc-300 hover:border-zinc-700 transition-all text-[7px] md:text-[9px]"
-                        >
-                          Reselect
-                        </button>
-                      </div>
-                    </div>
                     </motion.div>
-                  );
-                })()}
+                  ) : (
+                    <motion.div 
+                      key="empty-dossier"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="hidden lg:flex w-[400px] bg-zinc-900/30 border-l border-zinc-800 flex-col items-center justify-center p-8 text-center"
+                    >
+                      <div className="w-20 h-20 rounded-full border-2 border-dashed border-zinc-800 flex items-center justify-center mb-6">
+                        <Users className="w-8 h-8 text-zinc-800" />
+                      </div>
+                      <h4 className="text-xl font-black italic uppercase tracking-tighter text-zinc-600">No Intelligence Selected</h4>
+                      <p className="text-zinc-700 text-xs mt-2 italic font-medium">Please select an operator from the grid to review tactical dossier details.</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
         {/* Global Modals */}
+        <AnimatePresence>
+          {showForfeitConfirm && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="w-full max-w-lg bg-zinc-950 border-2 border-red-600/50 p-8 rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.2)] relative overflow-hidden"
+              >
+                {/* Tactical Background Accents */}
+                <div className="absolute top-0 left-0 w-full h-1 bg-red-600 animate-pulse" />
+                <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(0deg, #f00 0px, #f00 1px, transparent 1px, transparent 2px)', backgroundSize: '100% 2px' }} />
+                
+                <div className="flex flex-col items-center text-center gap-6 relative z-10">
+                  <div className="w-20 h-20 rounded-full bg-red-600/20 flex items-center justify-center border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.4)]">
+                    <ShieldAlert className="w-10 h-10 text-red-500" />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <h2 className="text-3xl font-black italic uppercase tracking-tighter text-red-500">Emergency Abort</h2>
+                    <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Protocol Level 4: Critical</div>
+                  </div>
+                  
+                  <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-lg text-zinc-400 text-sm leading-relaxed font-medium italic">
+                    "Doctor, are you absolutely certain you want to terminate this operation? <span className="text-red-400 font-bold">All current progress and synchronized assets will be lost.</span> The mission will be marked as a total tactical withdrawal."
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 w-full">
+                    <button 
+                      onClick={() => {
+                        if (localPlayer) handleBankruptcy(localPlayer);
+                        setShowForfeitConfirm(false);
+                      }}
+                      className="flex-1 py-4 bg-red-600 text-black font-black uppercase italic tracking-widest rounded-xl hover:bg-red-500 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] flex items-center justify-center gap-2"
+                    >
+                      Initialize Forfeit
+                    </button>
+                    <button 
+                      onClick={() => setShowForfeitConfirm(false)}
+                      className="flex-1 py-4 bg-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-all"
+                    >
+                      Resume Mission
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        
         <AnimatePresence>
           {showProfile && (
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -4182,9 +4221,7 @@ const App: React.FC = () => {
         {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
           <button
             onClick={() => {
-              if (window.confirm("IMMEDIATE MISSION ABORT? SURVIVAL REWARDS WILL BE PROCESSED.")) {
-                handleBankruptcy(localPlayer);
-              }
+              setShowForfeitConfirm(true);
             }}
             className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-900/40 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white"
             title="TACTICAL ABORT (FORFEIT)"
