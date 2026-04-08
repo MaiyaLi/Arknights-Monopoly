@@ -356,6 +356,41 @@ const App: React.FC = () => {
     </motion.div>
   );
 
+  const SignalLostOverlay = () => (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4"
+    >
+      <div className="w-full max-w-md bg-zinc-950 border-2 border-red-600/50 p-8 rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.2)] relative overflow-hidden flex flex-col items-center text-center gap-6">
+        <div className="absolute top-0 left-0 w-full h-1 bg-red-600 animate-pulse" />
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(0deg, #f00 0px, #f00 1px, transparent 1px, transparent 2px)', backgroundSize: '100% 2px' }} />
+        
+        <div className="w-20 h-20 rounded-full bg-red-600/20 flex items-center justify-center border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.4)]">
+          <ShieldAlert className="w-10 h-10 text-red-500" />
+        </div>
+        
+        <div className="space-y-2">
+          <h2 className="text-3xl font-black italic uppercase tracking-tighter text-red-500">Signal: <span className="text-white">Lost</span></h2>
+          <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Tactical Link Interrupted</div>
+        </div>
+        
+        <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-lg text-zinc-400 text-sm leading-relaxed font-medium italic">
+          "Doctor, the link to Rhodes Island Mainframe has been severed. Recalibrating tactical frequencies is required to resume oversight."
+        </div>
+        
+        <button 
+          onClick={reconnect}
+          className="w-full py-4 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-400 transition-all shadow-[0_0_20px_rgba(249,115,22,0.3)] flex items-center justify-center gap-2"
+        >
+          <RotateCw className="w-5 h-5" />
+          Recalibrate Tactical Link
+        </button>
+      </div>
+    </motion.div>
+  );
+
   useEffect(() => {
     if (!containerRef.current) return;
     
@@ -3924,7 +3959,7 @@ const App: React.FC = () => {
                       initial={{ opacity: 0, x: 50 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 50 }}
-                      className="w-full lg:w-[400px] shrink-0 bg-zinc-900/80 backdrop-blur-md rounded-2xl border-l border-zinc-800 flex flex-col p-6 shadow-2xl relative overflow-hidden"
+                      className="w-full lg:w-[400px] shrink-0 bg-zinc-900/80 backdrop-blur-md rounded-2xl border-l border-zinc-800 flex flex-col p-6 shadow-2xl relative overflow-y-auto lg:overflow-hidden select-none"
                     >
                       {/* Dossier Background Decoration */}
                       <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-[80px] rounded-full pointer-events-none" />
@@ -3958,7 +3993,7 @@ const App: React.FC = () => {
                         </div>
 
                         {/* Skill Intel */}
-                        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4">
+                        <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto space-y-4 mb-4 lg:mb-0 pr-1 lg:pr-2 scrollbar-thin scrollbar-thumb-zinc-700">
                           <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
                             <div className="flex items-center gap-2 mb-2 text-orange-500">
                               <Zap className="w-4 h-4 fill-orange-500/20" />
@@ -5896,6 +5931,7 @@ const App: React.FC = () => {
           </div>
         )}
         {isQueuing && <SearchingOverlay />}
+        {!isConnected && socket && <SignalLostOverlay />}
       </AnimatePresence>
     </div>
   );
