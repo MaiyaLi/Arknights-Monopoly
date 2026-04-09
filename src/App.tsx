@@ -3956,34 +3956,36 @@ const App: React.FC = () => {
                   {previewOperator ? (
                     <motion.div 
                       key={previewOperator.name}
-                      initial={{ opacity: 0, x: 50 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 50 }}
-                      className="w-full lg:w-[400px] shrink-0 bg-zinc-900/80 backdrop-blur-md rounded-2xl lg:rounded-2xl border-l border-zinc-800 flex flex-col p-6 shadow-2xl relative overflow-y-auto lg:overflow-hidden select-none z-40 fixed inset-0 lg:relative lg:inset-auto"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-50 fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-full lg:max-h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 lg:overflow-hidden"
                     >
                       {/* Dossier Background Decoration */}
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-[80px] rounded-full pointer-events-none" />
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] rounded-full pointer-events-none" />
                       
-                      <div className="relative z-10 flex-1 flex flex-col min-h-0">
-                        {/* Dossier Header */}
-                        <div className="flex items-start justify-between mb-6">
-                          <div>
-                            <div className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mb-1">Intelligence File</div>
-                            <h3 className="text-4xl font-black italic tracking-tighter uppercase leading-none">{previewOperator.name}</h3>
-                            <div className="text-xs font-mono text-zinc-5500 mt-1 uppercase tracking-widest">{previewOperator.title}</div>
-                          </div>
-                          <div className="w-12 h-12 bg-zinc-950 border border-zinc-800 rounded-xl p-1 shrink-0">
-                            <div className="w-full h-full rounded-lg" style={{ backgroundColor: previewOperator.color }} />
-                          </div>
+                      {/* 1. Header Area - Fixed */}
+                      <div className="flex-none p-6 border-b border-zinc-800/50 bg-zinc-900/30 backdrop-blur-md flex items-start justify-between z-20">
+                        <div>
+                          <div className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mb-1">Intelligence File</div>
+                          <h3 className="text-4xl font-black italic tracking-tighter uppercase leading-none">{previewOperator.name}</h3>
+                          <div className="text-xs font-mono text-zinc-500 mt-1 uppercase tracking-widest">{previewOperator.title}</div>
                         </div>
+                        <div className="w-12 h-12 bg-zinc-950 border border-zinc-800 rounded-xl p-1 shrink-0">
+                          <div className="w-full h-full rounded-lg" style={{ backgroundColor: previewOperator.color }} />
+                        </div>
+                      </div>
 
-                        {/* Portrait Preview - Constrained on mobile */}
-                        <div className="aspect-[4/3] md:aspect-[4/5] w-full max-h-[35vh] md:max-h-none rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait mb-6 shrink-0">
+                      {/* 2. Scrollable Body Area - Portrait & Details */}
+                      <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+                        
+                        {/* Portrait Preview - Dynamic height constraint */}
+                        <div className="aspect-[4/5] w-full max-h-[45vh] lg:max-h-[500px] rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait shrink-0">
                           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent z-10" />
                           <img 
                             src={previewOperator.portrait} 
                             alt={previewOperator.name} 
-                            className="w-full h-full object-contain md:object-cover transition-transform duration-1000 group-hover:scale-110" 
+                            className="w-full h-full object-contain md:object-cover transition-transform duration-1000 group-hover:scale-105" 
                             referrerPolicy="no-referrer"
                           />
                           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
@@ -3992,24 +3994,28 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Skill Intel - Ensure scrollable & visible */}
-                        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1 lg:pr-2 scrollbar-thin scrollbar-thumb-zinc-700 min-h-0">
-                          <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
-                            <div className="flex items-center gap-2 mb-2 text-orange-500">
-                              <Zap className="w-4 h-4 fill-orange-500/20" />
-                              <span className="text-xs font-black uppercase tracking-widest">Tactical Skill: {previewOperator.skill.name}</span>
+                        {/* Skill Intel - Critical block */}
+                        <div className="space-y-6">
+                          <div className="p-5 bg-zinc-900/50 rounded-2xl border border-zinc-800/50 shadow-lg">
+                            <div className="flex items-center gap-3 mb-3 text-orange-500">
+                              <Zap className="w-5 h-5 fill-orange-500/20" />
+                              <span className="text-sm font-black uppercase tracking-[0.2em]">Tactical Passive: {previewOperator.skill.name}</span>
                             </div>
-                            <p className="text-sm text-zinc-400 leading-relaxed italic">{previewOperator.skill.description}</p>
+                            <p className="text-base text-zinc-300 leading-relaxed font-medium italic opacity-90">{previewOperator.skill.description}</p>
                           </div>
                           
-                          <div className="p-4 border-l-2 border-orange-500 bg-zinc-900/50 mb-4">
-                            <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Operator Profile</div>
-                            <p className="text-sm text-zinc-300 font-medium italic">"{previewOperator.description}"</p>
+                          <div className="p-5 border-l-4 border-orange-500/50 bg-zinc-900/20 rounded-r-2xl">
+                            <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 opacity-60">Dossier Summary</div>
+                            <p className="text-sm text-zinc-400 font-medium italic leading-relaxed">"{previewOperator.description}"</p>
                           </div>
                         </div>
 
-                        {/* Action Buttons */}
-                        <div className="mt-6 flex flex-col gap-3">
+                        <div className="h-4 shrink-0" /> {/* Bottom spacer for scroll area */}
+                      </div>
+
+                      {/* 3. Footer Area - Sticky Buttons */}
+                      <div className="flex-none p-6 pb-8 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                        <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
                               !gameState.players.find(p => p.id === socket?.id && (typeof p.operator === 'string' ? p.operator : p.operator?.name) === previewOperator.name);
@@ -4018,25 +4024,30 @@ const App: React.FC = () => {
                               <button 
                                 onClick={() => startGame(previewOperator)}
                                 disabled={isSelectedByOther}
-                                className={`w-full py-4 font-black uppercase italic tracking-[0.2em] rounded-xl transition-all shadow-2xl flex items-center justify-center gap-3 overflow-hidden relative group/confirm ${
+                                className={`w-full py-5 font-black uppercase italic tracking-[0.2em] rounded-2xl transition-all shadow-2xl flex items-center justify-center gap-3 overflow-hidden relative group/confirm ${
                                   isSelectedByOther 
                                     ? 'bg-zinc-800 text-zinc-600 border border-zinc-700 cursor-not-allowed' 
-                                    : 'bg-orange-500 text-black hover:bg-orange-400 hover:scale-[1.02]'
+                                    : 'bg-orange-500 text-black hover:bg-orange-400 hover:scale-[1.02] active:scale-95'
                                 }`}
                               >
                                 {!isSelectedByOther && (
                                   <motion.div animate={{ x: ['-100%', '200%'] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]" />
                                 )}
-                                <Shield className="w-5 h-5" />
-                                {isSelectedByOther ? 'Operator Deployed' : 'Initialize Deployment'}
+                                <Shield className="w-6 h-6" />
+                                <span className="text-lg">
+                                  {isSelectedByOther ? 'Operator Deployed' : 'Initialize Deployment'}
+                                </span>
                               </button>
                             );
                           })()}
                           <button 
-                            onClick={() => setPreviewOperator(null)}
-                            className="w-full py-3 bg-zinc-800/50 border border-zinc-800 text-zinc-500 text-xs font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-800 hover:text-white transition-all"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewOperator(null);
+                            }}
+                            className="w-full py-4 bg-transparent border border-zinc-700/50 text-zinc-400 text-xs font-black uppercase italic tracking-[0.3em] rounded-2xl hover:bg-zinc-800 hover:text-white hover:border-zinc-500 transition-all active:scale-95"
                           >
-                            Return to Grid
+                            Return to Selection Grid
                           </button>
                         </div>
                       </div>
