@@ -674,8 +674,13 @@ async function startServer() {
             });
           }
 
-          // If it was their turn, advance to next player
-          if (room.gameState.players[room.gameState.currentPlayerIndex].id === playerToForfeit.id) {
+          // Check for winner
+          const activePlayers = room.gameState.players.filter(p => !p.isBankrupt);
+          if (activePlayers.length === 1) {
+            room.gameState.winner = activePlayers[0].id;
+            room.gameState.message = `Mission ended. Doctor ${activePlayers[0].name} has secured the sector.`;
+          } else if (room.gameState.players[room.gameState.currentPlayerIndex].id === playerToForfeit.id) {
+            // If it was their turn, advance to next player
              let nextIndex = (room.gameState.currentPlayerIndex + 1) % room.gameState.players.length;
              while (room.gameState.players[nextIndex].isBankrupt && room.gameState.players.filter(p => !p.isBankrupt).length > 1) {
                 nextIndex = (nextIndex + 1) % room.gameState.players.length;

@@ -2053,15 +2053,23 @@ const App: React.FC = () => {
         return t;
       });
 
+      // Check for winner
       const activePlayers = updatedPlayers.filter(p => !p.isBankrupt);
       if (activePlayers.length === 1) {
-        return {
+        const finalState = {
           ...prev,
           players: updatedPlayers,
           tiles: updatedTiles,
           winner: activePlayers[0].id,
           message: `${player.name} is bankrupt! ${activePlayers[0].name} wins the mission!`
         };
+
+        if (socket && prev.roomId && !isNetworkUpdate.current) {
+          const { chatMessages, ...stateToSync } = finalState;
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        }
+
+        return finalState;
       }
 
       let nextIndex = prev.currentPlayerIndex;
@@ -2098,8 +2106,9 @@ const App: React.FC = () => {
       if (socket && prev.roomId && !isNetworkUpdate.current) {
         const { chatMessages, ...stateToSync } = newState;
         socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        
         // Only trigger next-turn if the forfeiting player WAS the current player
-        if (prev.players[prev.currentPlayerIndex].id === player.id) {
+        if (prev.players[prev.currentPlayerIndex].id === player.id && !newState.winner) {
           socket.emit('next-turn', { roomId: prev.roomId, nextIndex });
         }
       }
@@ -3243,7 +3252,7 @@ const App: React.FC = () => {
              style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
         
         <AnimatePresence mode="wait">
-          {!profile.email && (
+          {!profile.email ? (
             <motion.div
               key="account-setup"
               initial={{ opacity: 0 }}
@@ -3326,212 +3335,9 @@ const App: React.FC = () => {
                 </div>
               </div>
             </motion.div>
-          )}
-
-          {showSettings && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-              <motion.div 
-                key="settings"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl"
-              >
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
-                  <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
-                    <Settings className="text-orange-500" /> Settings
-                  </h2>
-                  <button 
-                    onClick={() => setShowSettings(false)}
-                    className="text-zinc-500 hover:text-white transition-colors"
-                  >
-                    <XCircle className="w-6 h-6" />
-                  </button>
-                </div>
-
-                <div className="flex flex-col gap-8">
-                  <div className="flex flex-col gap-3">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Master Volume</label>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="100" 
-                      value={settings.volume}
-                      onChange={(e) => setSettings(prev => ({ ...prev, volume: parseInt(e.target.value) }))}
-                      className="w-full accent-orange-500"
-                    />
-                    <div className="flex justify-between text-[10px] font-mono text-zinc-500">
-                      <span>0%</span>
-                      <span>{settings.volume}%</span>
-                      <span>100%</span>
-                    </div>
-                  </div>
-
-                  {/* Enhanced Music Controls */}
-                  <div className="flex flex-col gap-4 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center border border-orange-500/30">
-                        <Music className="w-5 h-5 text-orange-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Tactical Sound System</div>
-                        <div className="text-sm font-black italic uppercase tracking-tighter text-white truncate">
-                          {LOBBY_MUSIC_METADATA[currentMusicIndex]}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between gap-2">
-                      <button 
-                        onClick={prevMusic}
-                        className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-orange-500/50 transition-all flex items-center justify-center"
-                      >
-                        <SkipBack className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={changeMusic}
-                        className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-orange-500/50 transition-all flex items-center justify-center gap-2"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        <span className="text-[8px] font-black uppercase">Shuffle</span>
-                      </button>
-                      <button 
-                        onClick={nextMusic}
-                        className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-orange-500/50 transition-all flex items-center justify-center"
-                      >
-                        <SkipForward className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Sound Effects</label>
-                    <button
-                      onClick={() => setSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
-                      className={`w-full py-3 text-xs font-black rounded border transition-all flex items-center justify-center gap-2 ${settings.soundEnabled ? 'bg-orange-500/10 text-orange-500 border-orange-500' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}
-                    >
-                      {settings.soundEnabled ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                      {settings.soundEnabled ? 'SFX Enabled' : 'SFX Disabled'}
-                    </button>
-                  </div>
-
-                  <div className="flex flex-col gap-3">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Animation Speed</label>
-                    <div className="flex gap-2">
-                      {[0.5, 1, 2].map(speed => (
-                        <button
-                          key={speed}
-                          onClick={() => setSettings(prev => ({ ...prev, animationSpeed: speed }))}
-                          className={`flex-1 py-2 text-xs font-black rounded border transition-all ${settings.animationSpeed === speed ? 'bg-orange-500 text-black border-orange-500' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}
-                        >
-                          {speed === 0.5 ? 'Slow' : speed === 1 ? 'Normal' : 'Fast'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
-                  <div className="mt-8 pt-6 border-t border-zinc-800">
-                    <button 
-                      onClick={() => {
-                        setShowForfeitConfirm(true);
-                        setShowSettings(false);
-                      }}
-                      className="w-full py-4 bg-red-900/50 border border-red-500/30 hover:bg-red-500/20 text-red-500 font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 group"
-                    >
-                      <ShieldAlert className="w-5 h-5 group-hover:animate-pulse" /> Tactical Abort
-                    </button>
-                  </div>
-                )}
-                
-                <button 
-                  onClick={() => setShowSettings(false)}
-                  className="w-full mt-4 py-4 bg-zinc-800 text-zinc-400 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-700 transition-all"
-                >
-                  Close Settings
-                </button>
-              </motion.div>
-            </div>
-          )}
-
-          {showArchives ? (
-            <motion.div 
-              key="archives"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="z-10 w-full max-w-4xl bg-zinc-900 border border-zinc-800 p-4 md:p-8 rounded-2xl shadow-2xl h-[90dvh] md:h-[80vh] flex flex-col"
-            >
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-4 mb-4 md:mb-8 shrink-0">
-                <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
-                  <History className="text-orange-500" /> Archives
-                </h2>
-                <button 
-                  onClick={() => setShowArchives(false)}
-                  className="text-zinc-500 hover:text-white transition-colors"
-                >
-                  <XCircle className="w-5 h-5 md:w-6 md:h-6" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto pr-2 md:pr-4 custom-scrollbar">
-                <div className="flex flex-col gap-8 md:gap-12">
-                  <section>
-                    <h3 className="text-[10px] md:text-xs font-black text-orange-500 uppercase tracking-[0.3em] mb-4 md:mb-6 border-l-2 border-orange-500 pl-4">Operator Profiles</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                      {OPERATORS.map(op => (
-                        <div key={op.name} className="bg-zinc-800/30 border border-zinc-800 p-3 md:p-4 rounded-lg flex gap-3 md:gap-4">
-                          <div className="w-16 h-16 md:w-20 md:h-20 rounded bg-zinc-900 flex items-center justify-center overflow-hidden shrink-0">
-                            <img src={op.portrait} alt={op.name} className="w-full h-full object-cover grayscale" referrerPolicy="no-referrer" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex justify-between items-start mb-1">
-                              <div>
-                                <div className="text-base md:text-lg font-black italic uppercase tracking-tight leading-none">{op.name}</div>
-                                <div className="text-[8px] md:text-[9px] text-zinc-500 font-mono uppercase">{op.title}</div>
-                              </div>
-                              <div className="text-[8px] font-black bg-orange-500/10 text-orange-500 px-1 py-0.5 rounded border border-orange-500/30 uppercase tracking-widest">{op.skill.name}</div>
-                            </div>
-                            <p className="text-[10px] md:text-xs text-zinc-400 leading-tight mb-2 italic">"{op.description}"</p>
-                            <div className="flex items-center gap-2 text-[9px] md:text-[10px] text-zinc-500 border-t border-zinc-800 pt-1">
-                              <Zap className="w-3 h-3 text-orange-500" />
-                              <span className="font-bold uppercase tracking-tighter">Passive:</span> {op.skill.description}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section>
-                    <h3 className="text-[10px] md:text-xs font-black text-orange-500 uppercase tracking-[0.3em] mb-4 md:mb-6 border-l-2 border-orange-500 pl-4">Sector Intelligence</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                      {Array.from(new Set(tiles.filter(t => t.group).map(t => t.group))).map(group => {
-                        const groupTiles = tiles.filter(t => t.group === group);
-                        return (
-                          <div key={group} className="bg-zinc-800/30 border border-zinc-800 p-3 md:p-4 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2 md:mb-3">
-                              <div className="w-2 h-2 md:w-3 md:h-3 rounded-full" style={{ backgroundColor: groupTiles[0].color }} />
-                              <div className="text-xs md:text-sm font-black uppercase italic tracking-widest">{group} Sector</div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              {groupTiles.map(t => (
-                                <div key={t.id} className="flex justify-between text-[9px] md:text-[10px] text-zinc-400">
-                                  <span>{t.name}</span>
-                                  <span className="font-mono text-orange-500">{t.cost} O</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </motion.div>
           ) : showJoinRoom ? (
+
+
             <motion.div 
               key="join-room"
               initial={{ opacity: 0, scale: 0.9 }}
@@ -4099,156 +3905,7 @@ const App: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Global Modals */}
-        <AnimatePresence>
-          {showForfeitConfirm && (
-            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                className="w-full max-w-lg bg-zinc-950 border-2 border-red-600/50 p-8 rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.2)] relative overflow-hidden"
-              >
-                {/* Tactical Background Accents */}
-                <div className="absolute top-0 left-0 w-full h-1 bg-red-600 animate-pulse" />
-                <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(0deg, #f00 0px, #f00 1px, transparent 1px, transparent 2px)', backgroundSize: '100% 2px' }} />
-                
-                <div className="flex flex-col items-center text-center gap-6 relative z-10">
-                  <div className="w-20 h-20 rounded-full bg-red-600/20 flex items-center justify-center border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.4)]">
-                    <ShieldAlert className="w-10 h-10 text-red-500" />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <h2 className="text-3xl font-black italic uppercase tracking-tighter text-red-500">Emergency Abort</h2>
-                    <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Protocol Level 4: Critical</div>
-                  </div>
-                  
-                  <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-lg text-zinc-400 text-sm leading-relaxed font-medium italic">
-                    "Doctor, are you absolutely certain you want to terminate this operation? <span className="text-red-400 font-bold">All current progress and synchronized assets will be lost.</span> The mission will be marked as a total tactical withdrawal."
-                  </div>
-                  
-                  <div className="flex flex-col sm:flex-row gap-3 w-full">
-                    <button 
-                      onClick={() => {
-                        if (gameState.gameMode === 'SINGLEPLAYER') {
-                          resetGame();
-                          setShowForfeitConfirm(false);
-                          return;
-                        }
-                        
-                        if (localPlayer) {
-                          // Emit explicitly for server-side property release and identity stabilization
-                          socket?.emit('forfeit-game', { 
-                            roomId: gameState.roomId, 
-                            playerId: socket?.id,
-                            playerEmail: profile.email 
-                          });
-                          handleBankruptcy(localPlayer);
-                        }
-                        setShowForfeitConfirm(false);
-                      }}
-                      className="flex-1 py-4 bg-red-600 text-black font-black uppercase italic tracking-widest rounded-xl hover:bg-red-500 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] flex items-center justify-center gap-2"
-                    >
-                      Initialize Forfeit
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setShowForfeitConfirm(false);
-                        if (!isConnected) reconnect(); // Hidden retry on resume
-                      }}
-                      className="flex-1 py-4 bg-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-all"
-                    >
-                      Resume Mission
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-        
-        <AnimatePresence>
-          {showProfile && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-              <motion.div 
-                key="profile"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl max-h-full overflow-y-auto no-scrollbar"
-              >
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-4 mb-4 md:mb-8 shrink-0">
-                  <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
-                    <User className="text-orange-500" /> Profile
-                  </h2>
-                  <button onClick={() => setShowProfile(false)} className="text-zinc-500 hover:text-white"><XCircle className="w-5 h-5 md:w-6 md:h-6" /></button>
-                </div>
-                <div className="flex flex-col gap-4 md:gap-6">
-                  <div className="flex items-center gap-4 md:gap-6">
-                    <div className="w-16 h-16 md:w-24 md:h-24 rounded-xl bg-zinc-800 border-2 border-orange-500 overflow-hidden shrink-0">
-                      <img 
-                        src={AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url} 
-                        alt="Avatar" 
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Codename</label>
-                      <input 
-                        type="text" 
-                        value={profile.name}
-                        onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
-                        className="w-full bg-transparent border-none outline-none text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2 md:mb-4">Select Avatar</label>
-                    <div className="grid grid-cols-5 gap-2 md:gap-3">
-                      {AVATARS.map((avatar) => (
-                        <button
-                          key={avatar.id}
-                          onClick={() => setProfile(prev => ({ ...prev, avatarId: avatar.id }))}
-                          className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
-                            profile.avatarId === avatar.id ? 'border-orange-500 scale-110 z-10' : 'border-zinc-800 hover:border-zinc-600'
-                          }`}
-                        >
-                          <img 
-                            src={avatar.url} 
-                            alt={avatar.name} 
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                          />
-                          {profile.avatarId === avatar.id && (
-                            <div className="absolute inset-0 bg-orange-500/20 flex items-center justify-center">
-                              <CheckCircle2 className="w-4 h-4 md:w-6 md:h-6 text-orange-500" />
-                            </div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 md:gap-4">
-                    <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
-                      <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>
-                      <div className="text-lg md:text-2xl font-black italic">{profile.matches}</div>
-                    </div>
-                    <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
-                      <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase text-orange-500">Wins</div>
-                      <div className="text-lg md:text-2xl font-black italic text-orange-500">{profile.wins}</div>
-                    </div>
-                    <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
-                      <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase text-red-500">Losses</div>
-                      <div className="text-lg md:text-2xl font-black italic text-red-500">{profile.losses}</div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+        {/* Global Modals: Moved to root return path */}
       </div>
     );
   }
@@ -5798,18 +5455,23 @@ const App: React.FC = () => {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl"
+              className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl max-h-full overflow-y-auto no-scrollbar"
             >
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
-                <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-4 mb-4 md:mb-8 shrink-0">
+                <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
                   <User className="text-orange-500" /> Profile
                 </h2>
-                <button onClick={() => setShowProfile(false)} className="text-zinc-500 hover:text-white"><XCircle /></button>
+                <button onClick={() => setShowProfile(false)} className="text-zinc-500 hover:text-white"><XCircle className="w-5 h-5 md:w-6 md:h-6" /></button>
               </div>
-              <div className="flex flex-col gap-6">
-                <div className="flex items-center gap-6">
-                  <div className="w-24 h-24 rounded-xl bg-orange-500/10 border-2 border-orange-500 flex items-center justify-center">
-                    <User className="w-12 h-12 text-orange-500" />
+              <div className="flex flex-col gap-4 md:gap-6">
+                <div className="flex items-center gap-4 md:gap-6">
+                  <div className="w-16 h-16 md:w-24 md:h-24 rounded-xl bg-zinc-800 border-2 border-orange-500 overflow-hidden shrink-0">
+                    <img 
+                      src={AVATARS.find(a => a.id === profile.avatarId)?.url || AVATARS[0].url} 
+                      alt="Avatar" 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
                   </div>
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Codename</label>
@@ -5817,34 +5479,177 @@ const App: React.FC = () => {
                       type="text" 
                       value={profile.name}
                       onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value.toUpperCase() }))}
-                      className="w-full bg-transparent border-none outline-none text-2xl font-black italic uppercase tracking-tighter text-white"
+                      className="w-full bg-transparent border-none outline-none text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white"
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-orange-500/10 p-4 rounded-lg border border-orange-500/30">
-                    <div className="text-[10px] text-orange-500 font-black uppercase tracking-widest">Level</div>
-                    <div className="text-3xl font-black italic text-orange-500">{profile.level}</div>
+
+                <div>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2 md:mb-4">Select Avatar</label>
+                  <div className="grid grid-cols-5 gap-2 md:gap-3">
+                    {AVATARS.map((avatar) => (
+                      <button
+                        key={avatar.id}
+                        onClick={() => setProfile(prev => ({ ...prev, avatarId: avatar.id }))}
+                        className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                          profile.avatarId === avatar.id ? 'border-orange-500 scale-110 z-10' : 'border-zinc-800 hover:border-zinc-600'
+                        }`}
+                      >
+                        <img 
+                          src={avatar.url} 
+                          alt={avatar.name} 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        {profile.avatarId === avatar.id && (
+                          <div className="absolute inset-0 bg-orange-500/20 flex items-center justify-center">
+                            <CheckCircle2 className="w-4 h-4 md:w-6 md:h-6 text-orange-500" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
                   </div>
-                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
-                    <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Total EXP</div>
-                    <div className="text-xl font-black italic">{profile.exp}</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 md:gap-4">
+                  <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>
+                    <div className="text-lg md:text-2xl font-black italic">{profile.matches}</div>
+                  </div>
+                  <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase text-orange-500">Wins</div>
+                    <div className="text-lg md:text-2xl font-black italic text-orange-500">{profile.wins}</div>
+                  </div>
+                  <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
+                    <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase text-red-500">Losses</div>
+                    <div className="text-lg md:text-2xl font-black italic text-red-500">{profile.losses}</div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showSettings && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              key="settings"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
+                <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
+                  <Settings className="text-orange-500" /> Settings
+                </h2>
+                <button onClick={() => setShowSettings(false)} className="text-zinc-500 hover:text-white transition-colors"><XCircle className="w-6 h-6" /></button>
+              </div>
+              <div className="flex flex-col gap-8">
+                <div className="flex flex-col gap-3">
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Master Volume</label>
+                  <input 
+                    type="range" min="0" max="100" value={settings.volume}
+                    onChange={(e) => setSettings(prev => ({ ...prev, volume: parseInt(e.target.value) }))}
+                    className="w-full accent-orange-500"
+                  />
+                  <div className="flex justify-between text-[10px] font-mono text-zinc-500"><span>0%</span><span>{settings.volume}%</span><span>100%</span></div>
+                </div>
+
+                <div className="flex flex-col gap-4 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700">
+                  <div className="flex items-center gap-3">
+                    <Music className="w-5 h-5 text-orange-500" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Tactical Sound System</div>
+                      <div className="text-sm font-black italic uppercase tracking-tighter text-white truncate">{LOBBY_MUSIC_METADATA[currentMusicIndex]}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <button onClick={prevMusic} className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-all"><SkipBack className="w-4 h-4 mx-auto" /></button>
+                    <button onClick={changeMusic} className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2"><RotateCcw className="w-4 h-4" /><span className="text-[8px] font-black uppercase">Shuffle</span></button>
+                    <button onClick={nextMusic} className="flex-1 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-all"><SkipForward className="w-4 h-4 mx-auto" /></button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
-                    <div className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>
-                    <div className="text-2xl font-black italic">{profile.matches}</div>
+                <div className="flex flex-col gap-4">
+                  <button onClick={() => setSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))} 
+                    className={`w-full py-3 text-xs font-black rounded border transition-all flex items-center justify-center gap-2 ${settings.soundEnabled ? 'bg-orange-500/10 text-orange-500 border-orange-500' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                    {settings.soundEnabled ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                    {settings.soundEnabled ? 'SFX Enabled' : 'SFX Disabled'}
+                  </button>
+                  <div className="flex gap-2">
+                    {[0.5, 1, 2].map(speed => (
+                      <button key={speed} onClick={() => setSettings(prev => ({ ...prev, animationSpeed: speed }))} 
+                        className={`flex-1 py-2 text-xs font-black rounded border transition-all ${settings.animationSpeed === speed ? 'bg-orange-500 text-black border-orange-500' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                        {speed === 0.5 ? 'Slow' : speed === 1 ? 'Normal' : 'Fast'}
+                      </button>
+                    ))}
                   </div>
-                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
-                    <div className="text-[10px] text-zinc-500 font-black uppercase text-orange-500">Wins</div>
-                    <div className="text-2xl font-black italic text-orange-500">{profile.wins}</div>
-                  </div>
-                  <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-800">
-                    <div className="text-[10px] text-zinc-500 font-black uppercase text-red-500">Losses</div>
-                    <div className="text-2xl font-black italic text-red-500">{profile.losses}</div>
-                  </div>
+                </div>
+              </div>
+              {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
+                <div className="mt-8 pt-6 border-t border-zinc-800">
+                  <button onClick={() => { setShowForfeitConfirm(true); setShowSettings(false); }} 
+                    className="w-full py-4 bg-red-900/50 border border-red-500/30 hover:bg-red-500/20 text-red-500 font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 group">
+                    <ShieldAlert className="w-5 h-5 group-hover:animate-pulse" /> Tactical Abort
+                  </button>
+                </div>
+              )}
+              <button onClick={() => setShowSettings(false)} className="w-full mt-4 py-4 bg-zinc-800 text-zinc-400 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-700 transition-all">Close Settings</button>
+            </motion.div>
+          </div>
+        )}
+
+        {showArchives && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              key="archives" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+              className="z-10 w-full max-w-4xl bg-zinc-900 border border-zinc-800 p-4 md:p-8 rounded-2xl shadow-2xl h-[90dvh] md:h-[80vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2 md:pb-4 mb-4 md:mb-8 shrink-0">
+                <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3"><History className="text-orange-500" /> Archives</h2>
+                <button onClick={() => setShowArchives(false)} className="text-zinc-500 hover:text-white transition-colors"><XCircle className="w-5 h-5 md:w-6 md:h-6" /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-2 md:pr-4 custom-scrollbar">
+                <div className="flex flex-col gap-8 md:gap-12">
+                  <section>
+                    <h3 className="text-[10px] md:text-xs font-black text-orange-500 uppercase tracking-[0.3em] mb-4 md:mb-6 border-l-2 border-orange-500 pl-4">Operator Profiles</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                      {OPERATORS.map(op => (
+                        <div key={op.name} className="bg-zinc-800/30 border border-zinc-800 p-3 md:p-4 rounded-lg flex gap-3 md:gap-4">
+                          <img src={op.portrait} alt={op.name} className="w-16 h-16 md:w-20 md:h-20 rounded bg-zinc-900 object-cover grayscale shrink-0" referrerPolicy="no-referrer" />
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start mb-1">
+                              <div><div className="text-base md:text-lg font-black italic uppercase tracking-tight leading-none">{op.name}</div><div className="text-[8px] md:text-[9px] text-zinc-500 font-mono uppercase">{op.title}</div></div>
+                              <div className="text-[8px] font-black bg-orange-500/10 text-orange-500 px-1 py-0.5 rounded border border-orange-500/30">{op.skill.name}</div>
+                            </div>
+                            <p className="text-[10px] md:text-xs text-zinc-400 leading-tight mb-2 italic">"{op.description}"</p>
+                            <div className="flex items-center gap-2 text-[9px] md:text-[10px] text-zinc-500 border-t border-zinc-800 pt-1"><Zap className="w-3 h-3 text-orange-500" /><span className="font-bold uppercase tracking-tighter">Passive:</span> {op.skill.description}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showForfeitConfirm && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-lg bg-zinc-950 border-2 border-red-600/50 p-8 rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.2)] relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-red-600 animate-pulse" />
+              <div className="flex flex-col items-center text-center gap-6 relative z-10">
+                <div className="w-20 h-20 rounded-full bg-red-600/20 flex items-center justify-center border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.4)]"><ShieldAlert className="w-10 h-10 text-red-500" /></div>
+                <div className="space-y-2"><h2 className="text-3xl font-black italic uppercase tracking-tighter text-red-500">Emergency Abort</h2><div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Protocol Level 4: Critical</div></div>
+                <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-lg text-zinc-400 text-sm italic">"Doctor, are you absolutely certain you want to terminate this operation? All current progress and assets will be lost. The mission will be marked as a total tactical withdrawal."</div>
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <button onClick={() => { if (gameState.gameMode === 'SINGLEPLAYER') { resetGame(); } else if (localPlayer) { socket?.emit('forfeit-game', { roomId: gameState.roomId, playerId: socket?.id, playerEmail: profile.email }); handleBankruptcy(localPlayer); } setShowForfeitConfirm(false); }} 
+                    className="flex-1 py-4 bg-red-600 text-black font-black uppercase italic tracking-widest rounded-xl hover:bg-red-500 transition-all">Initialize Forfeit</button>
+                  <button onClick={() => setShowForfeitConfirm(false)} className="flex-1 py-4 bg-zinc-800 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-all">Resume Mission</button>
                 </div>
               </div>
             </motion.div>
