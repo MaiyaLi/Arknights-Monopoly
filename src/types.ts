@@ -115,6 +115,15 @@ export interface GameState {
   chatMessages: ChatMessage[];
   tiles: Tile[];
   turnCount: number;
+  rankings?: {
+    id: string;
+    name: string;
+    rank: number;
+    stats: {
+      orundum: number;
+      assets: number;
+    };
+  }[];
 }
 
 export interface ChatMessage {

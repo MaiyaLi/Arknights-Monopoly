@@ -674,11 +674,41 @@ async function startServer() {
             });
           }
 
-          // Check for winner
+          // Initialize rankings if not exists
+          if (!room.gameState.rankings) room.gameState.rankings = [];
+          
+          // Track active players count BEFORE declaring the winner
           const activePlayers = room.gameState.players.filter(p => !p.isBankrupt);
+          
+          // Add this player to rankings (rank is number of active players + 1)
+          room.gameState.rankings.unshift({
+            id: playerToForfeit.id,
+            name: playerToForfeit.name,
+            rank: activePlayers.length + 1,
+            stats: { 
+              orundum: playerToForfeit.orundum,
+              assets: (playerToForfeit.properties || []).length
+            }
+          });
+
+          // Check for winner
           if (activePlayers.length === 1) {
-            room.gameState.winner = activePlayers[0].id;
-            room.gameState.message = `Mission ended. Doctor ${activePlayers[0].name} has secured the sector.`;
+            const winner = activePlayers[0];
+            room.gameState.winner = winner.id;
+            room.gameState.message = `Mission ended. Doctor ${winner.name} has secured the sector.`;
+            
+            // Add winner to rankings as 1st place
+            room.gameState.rankings.unshift({
+              id: winner.id,
+              name: winner.name,
+              rank: 1,
+              stats: {
+                orundum: winner.orundum,
+                assets: (winner.properties || []).length
+              }
+            });
+            // Ensure rankings are sorted by rank
+            room.gameState.rankings.sort((a: any, b: any) => (a.rank || 9) - (b.rank || 9));
           } else if (room.gameState.players[room.gameState.currentPlayerIndex].id === playerToForfeit.id) {
             // If it was their turn, advance to next player
              let nextIndex = (room.gameState.currentPlayerIndex + 1) % room.gameState.players.length;

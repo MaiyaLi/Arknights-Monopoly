@@ -286,7 +286,8 @@ const App: React.FC = () => {
     lastAiTradeTime: 0,
     chatMessages: [],
     tiles: TILES,
-    turnCount: 0
+    turnCount: 0,
+    rankings: []
   });
 
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -2094,13 +2095,40 @@ const App: React.FC = () => {
 
       // Check for winner
       const activePlayers = updatedPlayers.filter(p => !p.isBankrupt);
+      
+      // Update rankings
+      const currentRankings = [...(prev.rankings || [])];
+      currentRankings.unshift({
+        id: player.id,
+        name: player.name,
+        rank: activePlayers.length + 1,
+        stats: {
+          orundum: player.orundum,
+          assets: (player.properties || []).length
+        }
+      });
+
       if (activePlayers.length === 1) {
+        const winner = activePlayers[0];
+        // Add winner as 1st place
+        currentRankings.unshift({
+          id: winner.id,
+          name: winner.name,
+          rank: 1,
+          stats: {
+            orundum: winner.orundum,
+            assets: (winner.properties || []).length
+          }
+        });
+        currentRankings.sort((a: any, b: any) => a.rank - b.rank);
+
         const finalState = {
           ...prev,
           players: updatedPlayers,
           tiles: updatedTiles,
-          winner: activePlayers[0].id,
-          message: `${player.name} is bankrupt! ${activePlayers[0].name} wins the mission!`
+          winner: winner.id,
+          rankings: currentRankings,
+          message: `${player.name} is bankrupt! ${winner.name} wins the mission!`
         };
 
         if (socket && prev.roomId && !isNetworkUpdate.current) {
@@ -3400,73 +3428,107 @@ const App: React.FC = () => {
 
             <motion.div 
               key="join-room"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="z-10 w-full max-w-sm bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl max-h-full overflow-y-auto no-scrollbar"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="z-10 w-full max-w-sm bg-zinc-950 border-2 border-orange-500/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
             >
-              <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter mb-4 md:mb-6">Join <span className="text-orange-500">Mission</span></h2>
-              <div className="flex flex-col gap-3 md:gap-4">
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    placeholder="ENTER ROOM ID"
-                    value={joinRoomId}
-                    disabled={isJoining}
-                    onChange={(e) => {
-                      setJoinError(null);
-                      setJoinRoomId(e.target.value.toUpperCase().trim());
-                    }}
-                    onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-                    className="w-full bg-zinc-800 border border-zinc-700 p-3 md:p-4 rounded text-center text-lg md:text-xl font-mono font-bold tracking-widest outline-none focus:border-orange-500 disabled:opacity-50"
-                  />
-                  {isJoining && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px] rounded">
-                      <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
-                    </div>
-                  )}
+              {/* Decorative scanline and grid */}
+              <div className="absolute inset-0 pointer-events-none opacity-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.1)_0,transparent_100%)]" />
+              
+              <div className="relative z-10 space-y-6">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-4 bg-orange-500" />
+                    <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Join <span className="text-orange-500">Mission</span></h2>
+                  </div>
+                  <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] font-mono">Sector Synchronization Protocol</div>
                 </div>
-                
-                {joinError && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -5 }} 
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded text-[10px] text-red-500 font-bold uppercase tracking-tight"
-                  >
-                    <AlertTriangle className="w-3 h-3 shrink-0" />
-                    {joinError}
-                  </motion.div>
-                )}
 
-                <div className="flex gap-2">
-                  <button 
-                    disabled={isJoining}
-                    onClick={() => {
-                      setShowJoinRoom(false);
-                      setJoinError(null);
-                    }} 
-                    className="flex-1 py-2 md:py-3 border border-zinc-800 text-zinc-500 font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm hover:bg-zinc-900 transition-all disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
+                <div className="space-y-4">
+                  <div className="relative group">
+                    <div className="absolute -inset-0.5 bg-orange-500/20 rounded opacity-75 group-focus-within:opacity-100 transition-opacity blur-[2px]" />
+                    <input 
+                      type="text" 
+                      placeholder="ENTER SECTOR ID"
+                      value={joinRoomId}
+                      disabled={isJoining}
+                      onChange={(e) => {
+                        setJoinError(null);
+                        setJoinRoomId(e.target.value.toUpperCase().trim());
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+                      className="relative w-full bg-zinc-900 border border-zinc-700 p-4 rounded text-center text-xl font-mono font-bold tracking-[0.2em] outline-none text-orange-500 focus:border-orange-500 transition-all placeholder:text-zinc-700 uppercase"
+                    />
+                    {isJoining && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm rounded border border-orange-500/50">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+                          <span className="text-[8px] font-black text-orange-500 uppercase tracking-widest animate-pulse">Syncing...</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <AnimatePresence mode="wait">
+                    {joinError && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }} 
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="flex items-start gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-500 font-medium italic">
+                          <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="font-black uppercase text-[10px] tracking-widest mb-1">Authorization Error</div>
+                            {joinError}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      disabled={isJoining}
+                      onClick={() => {
+                        setShowJoinRoom(false);
+                        setJoinError(null);
+                      }} 
+                      className="flex-1 py-3 border border-zinc-800 text-zinc-600 font-black uppercase italic tracking-widest rounded transition-all hover:bg-zinc-900 hover:text-zinc-400 disabled:opacity-30 text-xs"
+                    >
+                      Abort
+                    </button>
                     <button 
                       disabled={isJoining || (!joinRoomId && isConnected)}
                       onClick={handleJoin} 
-                      className="flex-1 py-2 md:py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm text-xs md:text-sm hover:bg-orange-400 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="flex-1 py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded transition-all hover:bg-orange-400 disabled:opacity-30 text-xs shadow-[0_0_20px_rgba(249,115,22,0.3)] flex items-center justify-center gap-2"
                     >
-                      {isJoining && <Loader2 className="w-3 h-3 animate-spin" />}
-                      {(!isConnected && isJoining) ? 'Initializing Link...' : 'Confirm'}
+                      {(!isConnected && isJoining) ? 'Initializing...' : 'Confirm'}
+                      <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
                   
                   {!isConnected && isJoining && (
-                    <motion.div 
-                      initial={{ opacity: 0 }} 
-                      animate={{ opacity: 1 }}
-                      className="text-[8px] text-zinc-500 font-mono text-center uppercase tracking-widest animate-pulse"
-                    >
-                      Establishing tactical link with Render... Please wait up to 30s.
-                    </motion.div>
+                    <div className="flex flex-col gap-2 p-3 bg-orange-500/5 border border-orange-500/20 rounded">
+                      <div className="flex justify-between items-center text-[8px] font-mono text-orange-500/70 uppercase">
+                        <span>Establishing Link</span>
+                        <span className="animate-pulse">Active</span>
+                      </div>
+                      <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
+                        <motion.div 
+                          className="h-full bg-orange-500"
+                          initial={{ width: "0%" }}
+                          animate={{ width: "100%" }}
+                          transition={{ duration: 30, ease: "linear" }}
+                        />
+                      </div>
+                      <p className="text-[7px] text-zinc-600 font-mono uppercase text-center italic">
+                        Node calibration in progress. Signal response expected within 30s.
+                      </p>
+                    </div>
                   )}
                 </div>
 
@@ -3474,27 +3536,28 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-zinc-800/50">
                   <button 
                     onClick={() => setShowProfile(true)}
-                    className="py-2 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                    className="py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                   >
                     <User className="w-3.5 h-3.5" />
                     <span className="text-[6px] font-black uppercase tracking-widest">Dossier</span>
                   </button>
                   <button 
                     onClick={() => setShowArchives(true)}
-                    className="py-2 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                    className="py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                   >
                     <TrendingUp className="w-3.5 h-3.5" />
                     <span className="text-[6px] font-black uppercase tracking-widest">Archives</span>
                   </button>
                   <button 
                     onClick={() => setShowSettings(true)}
-                    className="py-2 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                    className="py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                   >
                     <Settings className="w-3.5 h-3.5" />
                     <span className="text-[6px] font-black uppercase tracking-widest">Terminal</span>
                   </button>
                 </div>
-              </motion.div>
+              </div>
+            </motion.div>
             ) : !showCharacterSelect ? (
             <motion.div 
               key="main-menu"
@@ -4028,6 +4091,21 @@ const App: React.FC = () => {
         >
           <ScrollText className="w-6 h-6" />
         </button>
+        
+        {/* Persistent Exit/Withdraw Button for Spectators */}
+        {gameState.gameStarted && !gameState.winner && localPlayer?.isBankrupt && (
+          <button
+            onClick={() => {
+              if (socket && gameState.roomId) socket.emit('leave-room', gameState.roomId);
+              resetGame();
+            }}
+            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-600 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] border border-red-500 animate-pulse"
+            title="WITHDRAW FROM SECTOR"
+          >
+            <LogOut className="w-6 h-6" />
+          </button>
+        )}
+
         <button
           onClick={() => {
             setShowMobileReport(!showMobileReport);
@@ -5829,39 +5907,79 @@ const App: React.FC = () => {
                   )}
                 </div>
 
-                {/* Stats List */}
+                {/* Debrief Report / Rankings Section */}
                 <div className="flex flex-col gap-3">
-                  <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Rankings</div>
-                  {[...gameState.players]
-                    .sort((a, b) => calculateTotalAssets(b) - calculateTotalAssets(a))
-                    .map((player, idx) => (
-                      <div 
-                        key={player.id} 
-                        className={`flex items-center gap-4 p-3 rounded-xl border transition-all ${player.id === gameState.winner ? 'bg-orange-500/10 border-orange-500/30' : 'bg-zinc-800/50 border-zinc-800'}`}
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Tactical Debrief</div>
+                    <div className="text-[8px] font-mono text-zinc-600 uppercase">Sector Performance Data</div>
+                  </div>
+                  
+                  {/* Using rankings state if available, otherwise fallback to assets sort */}
+                  {(gameState.rankings || [...gameState.players].sort((a,b) => calculateTotalAssets(b) - calculateTotalAssets(a))).map((entry, idx) => {
+                    // entry could be a Player object (fallback) or a Ranking object
+                    const playerId = typeof entry.id === 'string' ? entry.id : (entry as any).id;
+                    const player = gameState.players.find(p => p.id === playerId);
+                    const rank = entry.rank || (idx + 1);
+                    const isWinner = rank === 1;
+                    
+                    if (!player) return null;
+
+                    return (
+                      <motion.div 
+                        key={playerId} 
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.4 + (idx * 0.1) }}
+                        className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all relative overflow-hidden group ${
+                          isWinner 
+                            ? 'bg-orange-500/10 border-orange-500/40 shadow-[0_0_20px_rgba(249,115,22,0.1)]' 
+                            : 'bg-zinc-800/40 border-zinc-800 hover:border-zinc-700'
+                        }`}
                       >
+                        {/* Rank Badge */}
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black italic text-sm skew-x-[-10deg] ${
+                          rank === 1 ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.5)]' :
+                          rank === 2 ? 'bg-zinc-300 text-black' :
+                          rank === 3 ? 'bg-amber-700 text-white' : 'bg-zinc-800 text-zinc-500'
+                        }`}>
+                          {rank}
+                        </div>
+
                         <div className="flex gap-2">
-                          <div className="w-8 h-8 rounded-lg border border-zinc-700 overflow-hidden bg-zinc-800">
+                          <div className={`w-10 h-10 rounded-xl border-2 overflow-hidden bg-zinc-900 transition-transform group-hover:scale-110 ${isWinner ? 'border-orange-500' : 'border-zinc-700'}`}>
                             <img src={player.avatar.url} alt={player.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           </div>
-                          <div className="w-8 h-8 rounded-lg border border-zinc-700 overflow-hidden bg-zinc-800">
+                          <div className={`w-10 h-10 rounded-xl border-2 overflow-hidden bg-zinc-900 transition-transform group-hover:scale-110 ${isWinner ? 'border-orange-500' : 'border-zinc-700'}`}>
                             <img src={player.operator.portrait} alt={player.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           </div>
                         </div>
+
                         <div className="flex-1">
-                          <div className="text-sm font-black uppercase italic tracking-tight text-white flex items-center gap-2">
-                            {player.name}
-                            {player.isBankrupt && <span className="text-[8px] bg-red-500/20 text-red-500 px-1 rounded">KIA</span>}
+                          <div className="flex items-center gap-2">
+                            <span className={`text-base font-black uppercase italic tracking-tighter ${isWinner ? 'text-white' : 'text-zinc-300'}`}>
+                              {player.name}
+                            </span>
+                            {player.isBankrupt && (
+                              <span className="text-[7px] font-black bg-red-500/20 text-red-500 px-1.5 py-0.5 rounded-sm uppercase tracking-tighter border border-red-500/30">Withdrawn</span>
+                            )}
                           </div>
-                          <div className="text-[10px] font-mono text-zinc-500">
-                            {calculateTotalAssets(player).toLocaleString()} ORUNDUM
+                          <div className={`text-[9px] font-bold uppercase tracking-widest ${isWinner ? 'text-orange-500/80' : 'text-zinc-600'}`}>
+                            {player.operator.title}
                           </div>
                         </div>
+
                         <div className="text-right">
-                          <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Properties</div>
-                          <div className="text-xs font-black italic text-zinc-300">{player.properties.length}</div>
+                          <div className={`text-sm font-black font-mono ${isWinner ? 'text-orange-500' : 'text-zinc-400'}`}>
+                            {entry.stats ? entry.stats.orundum : calculateTotalAssets(player)}
+                          </div>
+                          <div className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Final Worth</div>
                         </div>
-                      </div>
-                    ))}
+                        
+                        {/* Decorative scanline overlay */}
+                        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_2px] opacity-20 pointer-events-none" />
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </div>
 
