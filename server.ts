@@ -416,13 +416,34 @@ async function startServer() {
           });
         }
 
-        // 2. CRITICAL: Mirror NEW socket.id into ACTIVE gameState if present
+        // 2. CRITICAL: Global ID Migration for Active Game State
         if (room.gameState && room.gameState.players) {
           const statePlayer = room.gameState.players.find(p => p.email === playerEmail);
           if (statePlayer) {
              const oldId = statePlayer.id;
-             statePlayer.id = socket.id;
-             console.log(`[Sector Link] Mirrored Session ID for ${playerName}: ${oldId} -> ${socket.id}`);
+             const newId = socket.id;
+             
+             // Update player object
+             statePlayer.id = newId;
+             
+             // Update tile ownership globally
+             if (room.gameState.tiles) {
+                room.gameState.tiles.forEach(t => {
+                   if (t.ownerId === oldId) t.ownerId = newId;
+                });
+             }
+             
+             // Update active auctions
+             if (room.gameState.activeAuction) {
+                const auction = room.gameState.activeAuction;
+                if (auction.bidderId === oldId) auction.bidderId = newId;
+                if (auction.highBidderId === oldId) auction.highBidderId = newId;
+                if (auction.biddingPlayerIds) {
+                   auction.biddingPlayerIds = auction.biddingPlayerIds.map(id => id === oldId ? newId : id);
+                }
+             }
+             
+             console.log(`[Deep Sector Link] Migrated all tactical data for ${playerName}: ${oldId} -> ${newId}`);
              // Broadcast updated state to everyone so their identifier maps stay valid
              io.to(roomId).emit('game-state-updated', room.gameState);
           }
@@ -651,6 +672,19 @@ async function startServer() {
                 t.isMortgaged = false;
               }
             });
+          }
+
+          // If it was their turn, advance to next player
+          if (room.gameState.players[room.gameState.currentPlayerIndex].id === playerToForfeit.id) {
+             let nextIndex = (room.gameState.currentPlayerIndex + 1) % room.gameState.players.length;
+             while (room.gameState.players[nextIndex].isBankrupt && room.gameState.players.filter(p => !p.isBankrupt).length > 1) {
+                nextIndex = (nextIndex + 1) % room.gameState.players.length;
+             }
+             room.gameState.currentPlayerIndex = nextIndex;
+             room.gameState.hasRolled = false;
+             room.gameState.canRollAgain = false;
+             room.gameState.isRolling = false;
+             room.gameState.message = `Tactical withdrawal confirmed. Turn shifted to Doctor ${room.gameState.players[nextIndex].name}.`;
           }
 
           // Broadcast the updated state to everyone

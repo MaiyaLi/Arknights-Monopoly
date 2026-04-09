@@ -900,7 +900,9 @@ const App: React.FC = () => {
           ...prev, 
           roomId, 
           isHost,
-          gameMode: newGameMode
+          gameMode: newGameMode,
+          // If we are rejoining a live game, prioritize the synced state
+          ...(syncedGameState && typeof syncedGameState === 'object' ? syncedGameState : {})
         };
         
         // Sync players if provided
@@ -3613,7 +3615,7 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-zinc-800 rounded-full">
                       <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
                       <span className={`text-[9px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
-                        {isConnected ? 'Signal: Linked' : 'Signal: Lost'}
+                        {isConnected ? 'Signal: Linked' : 'Signal: Lost'} | V8.5-STABLE
                       </span>
                     </div>
                     {socket && !isConnected && (
