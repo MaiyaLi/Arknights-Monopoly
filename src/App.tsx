@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
-/* build_id: force_hash_update_9999 */
 import { 
   Dice5, 
   User, 
@@ -3883,7 +3882,7 @@ const App: React.FC = () => {
               </div>
 
               {/* Main Selection Area - Split Pane */}
-              <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden mt-4 p-4 lg:p-0">
+              <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden mt-4 p-4 lg:p-0 relative">
                 {/* Left: Interactive Grid */}
                 <div className="flex-1 overflow-y-auto no-scrollbar pr-2">
                   <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-8">
@@ -3960,7 +3959,7 @@ const App: React.FC = () => {
                       initial={{ opacity: 0, x: 50 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 50 }}
-                      className="w-full lg:w-[400px] shrink-0 bg-zinc-900/80 backdrop-blur-md rounded-2xl border-l border-zinc-800 flex flex-col p-6 shadow-2xl relative overflow-y-auto lg:overflow-hidden select-none"
+                      className="w-full lg:w-[400px] shrink-0 bg-zinc-900/80 backdrop-blur-md rounded-2xl lg:rounded-2xl border-l border-zinc-800 flex flex-col p-6 shadow-2xl relative overflow-y-auto lg:overflow-hidden select-none z-40 fixed inset-0 lg:relative lg:inset-auto"
                     >
                       {/* Dossier Background Decoration */}
                       <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-[80px] rounded-full pointer-events-none" />
@@ -3978,13 +3977,13 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Large Portrait Preview */}
-                        <div className="aspect-[4/5] w-full rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait mb-6">
+                        {/* Portrait Preview - Constrained on mobile */}
+                        <div className="aspect-[4/3] md:aspect-[4/5] w-full max-h-[35vh] md:max-h-none rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait mb-6 shrink-0">
                           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent z-10" />
                           <img 
                             src={previewOperator.portrait} 
                             alt={previewOperator.name} 
-                            className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" 
+                            className="w-full h-full object-contain md:object-cover transition-transform duration-1000 group-hover:scale-110" 
                             referrerPolicy="no-referrer"
                           />
                           <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
@@ -3993,8 +3992,8 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Skill Intel */}
-                        <div className="flex-none lg:flex-1 overflow-visible lg:overflow-y-auto space-y-4 mb-4 lg:mb-0 pr-1 lg:pr-2 scrollbar-thin scrollbar-thumb-zinc-700">
+                        {/* Skill Intel - Ensure scrollable & visible */}
+                        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1 lg:pr-2 scrollbar-thin scrollbar-thumb-zinc-700 min-h-0">
                           <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
                             <div className="flex items-center gap-2 mb-2 text-orange-500">
                               <Zap className="w-4 h-4 fill-orange-500/20" />
@@ -4003,7 +4002,7 @@ const App: React.FC = () => {
                             <p className="text-sm text-zinc-400 leading-relaxed italic">{previewOperator.skill.description}</p>
                           </div>
                           
-                          <div className="p-4 border-l-2 border-orange-500 bg-zinc-900/50">
+                          <div className="p-4 border-l-2 border-orange-500 bg-zinc-900/50 mb-4">
                             <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Operator Profile</div>
                             <p className="text-sm text-zinc-300 font-medium italic">"{previewOperator.description}"</p>
                           </div>
