@@ -1512,8 +1512,8 @@ const App: React.FC = () => {
   const isLocalTurn = useMemo(() => {
     if (!currentPlayer || !localPlayer) return false;
     // Strict comparison: unique ID, or unique email if IDs don't match (due to socket reconnect)
-    const isSameId = currentPlayer.id === localPlayer.id;
-    const isSameEmail = currentPlayer.email && localPlayer.email && currentPlayer.email === localPlayer.email;
+    const isSameId = currentPlayer.id === localPlayer?.id;
+    const isSameEmail = currentPlayer.email && localPlayer?.email && currentPlayer.email === localPlayer.email;
     return isSameId || isSameEmail;
   }, [currentPlayer, localPlayer]);
 
@@ -3980,7 +3980,7 @@ const App: React.FC = () => {
                       <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
                         
                         {/* Portrait Preview - Dynamic height constraint */}
-                        <div className="aspect-[4/5] w-full max-h-[45vh] lg:max-h-[500px] rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait shrink-0">
+                        <div className="aspect-[4/5] w-full max-h-[35vh] lg:max-h-[500px] rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait shrink-0">
                           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent z-10" />
                           <img 
                             src={previewOperator.portrait} 
@@ -4014,7 +4014,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 3. Footer Area - Sticky Buttons */}
-                      <div className="flex-none p-6 pb-8 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                      <div className="flex-none p-4 pb-4 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
                         <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
@@ -4102,7 +4102,15 @@ const App: React.FC = () => {
                   <div className="flex flex-col sm:flex-row gap-3 w-full">
                     <button 
                       onClick={() => {
-                        if (localPlayer) handleBankruptcy(localPlayer);
+                        if (localPlayer) {
+                          // Emit explicitly for server-side property release and identity stabilization
+                          socket?.emit('forfeit-game', { 
+                            roomId: gameState.roomId, 
+                            playerId: socket.id,
+                            playerEmail: profile.email 
+                          });
+                          handleBankruptcy(localPlayer);
+                        }
                         setShowForfeitConfirm(false);
                       }}
                       className="flex-1 py-4 bg-red-600 text-black font-black uppercase italic tracking-widest rounded-xl hover:bg-red-500 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] flex items-center justify-center gap-2"

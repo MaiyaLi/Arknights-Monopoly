@@ -398,8 +398,12 @@ async function startServer() {
         const isRejoiningHost = room.hostEmail && room.hostEmail === playerEmail;
         if (isRejoiningHost) room.hostId = socket.id;
 
-        // Add player if not already in (and not rejoining as host which is handled above)
-        if (!room.players.find(p => p.id === socket.id || (playerEmail && p.email === playerEmail))) {
+        // 1. Update LOBBY players list
+        const existingPlayerIndex = room.players.findIndex(p => p.email === playerEmail || p.id === socket.id);
+        if (existingPlayerIndex !== -1) {
+          room.players[existingPlayerIndex].id = socket.id;
+          room.players[existingPlayerIndex].status = 'RECONNECTED';
+        } else if (room.players.length < 4) {
           const user = playerEmail ? users.get(playerEmail) : null;
           room.players.push({
             id: socket.id,
@@ -410,6 +414,18 @@ async function startServer() {
             operator: null,
             status: 'WAITING'
           });
+        }
+
+        // 2. CRITICAL: Mirror NEW socket.id into ACTIVE gameState if present
+        if (room.gameState && room.gameState.players) {
+          const statePlayer = room.gameState.players.find(p => p.email === playerEmail);
+          if (statePlayer) {
+             const oldId = statePlayer.id;
+             statePlayer.id = socket.id;
+             console.log(`[Sector Link] Mirrored Session ID for ${playerName}: ${oldId} -> ${socket.id}`);
+             // Broadcast updated state to everyone so their identifier maps stay valid
+             io.to(roomId).emit('game-state-updated', room.gameState);
+          }
         }
 
         // Update Firestore with the new player list
@@ -612,6 +628,39 @@ async function startServer() {
           socket.emit('id-synced', { newId: socket.id });
           io.to(roomId).emit('player-synced', { playerName, newId: socket.id });
           io.to(roomId).emit('player-id-synced', { oldId, newId: socket.id, playerName: player.name });
+        }
+      }
+    });
+
+    socket.on('forfeit-game', async ({ roomId, playerId, playerEmail }) => {
+      const room = rooms.get(roomId);
+      if (room && room.gameState) {
+        const playerToForfeit = room.gameState.players.find(p => p.id === playerId || (playerEmail && p.email === playerEmail));
+        if (playerToForfeit && !playerToForfeit.isBankrupt) {
+          console.log(`[Tactical Abort] Doctor ${playerToForfeit.name} initiated emergency withdrawal from ${roomId}.`);
+          
+          // Update state: Set bankrupt
+          playerToForfeit.isBankrupt = true;
+          
+          // Release properties to neutral
+          if (room.gameState.tiles) {
+            room.gameState.tiles.forEach(t => {
+              if (t.ownerId === playerToForfeit.id) {
+                t.ownerId = ''; // Becomes neutral
+                t.dorms = 0;
+                t.isMortgaged = false;
+              }
+            });
+          }
+
+          // Broadcast the updated state to everyone
+          io.to(roomId).emit('game-state-updated', room.gameState);
+          io.to(roomId).emit('player-forfeited', { 
+            playerId: playerToForfeit.id, 
+            playerName: playerToForfeit.name 
+          });
+
+          await saveLobbyToFirestore(roomId);
         }
       }
     });
