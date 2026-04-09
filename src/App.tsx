@@ -1513,9 +1513,15 @@ const App: React.FC = () => {
 
   const isLocalTurn = useMemo(() => {
     if (!currentPlayer || !localPlayer) return false;
+    
+    // STRICT GUARD: If it's an AI's turn, it is NEVER a "local turn" for the human player.
+    // This prevents control-leakage in singleplayer.
+    if (currentPlayer.isAI) return false;
+
     // Strict comparison: unique ID, or unique email if IDs don't match (due to socket reconnect)
     const isSameId = currentPlayer.id === localPlayer?.id;
-    const isSameEmail = currentPlayer.email && localPlayer?.email && currentPlayer.email === localPlayer.email;
+    // Only compare emails if they both actually exist to avoid 'undefined === undefined' matching in singleplayer
+    const isSameEmail = !!currentPlayer.email && !!localPlayer.email && currentPlayer.email === localPlayer.email;
     return isSameId || isSameEmail;
   }, [currentPlayer, localPlayer]);
 
@@ -3981,7 +3987,7 @@ const App: React.FC = () => {
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.95 }}
-                      className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-50 fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-full lg:max-h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 lg:overflow-hidden"
+                      className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-50 fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 lg:overflow-hidden"
                     >
                       {/* Dossier Background Decoration */}
                       <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] rounded-full pointer-events-none" />
@@ -4035,8 +4041,8 @@ const App: React.FC = () => {
                         <div className="h-4 shrink-0" /> {/* Bottom spacer for scroll area */}
                       </div>
 
-                      {/* 3. Footer Area - Sticky Buttons */}
-                      <div className="flex-none p-4 pb-16 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                      {/* 3. Footer Area - Sticky Buttons - Increased safety padding for mobile */}
+                      <div className="flex-none p-4 pb-24 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
                         <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
@@ -4318,7 +4324,7 @@ const App: React.FC = () => {
             onClick={() => {
               setShowForfeitConfirm(true);
             }}
-            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-900/40 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white"
+            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-900/40 text-red-500 border border-red-500/30 hover:bg-white hover:text-red-600 shadow-lg relative z-[60]"
             title="TACTICAL ABORT (FORFEIT)"
           >
             <ShieldAlert className="w-6 h-6" />
@@ -5541,7 +5547,7 @@ const App: React.FC = () => {
               animate={{ scale: 1, y: 0, rotateY: 0 }}
               exit={{ scale: 0.8, opacity: 0, transition: { duration: 0.2 } }}
               transition={{ type: "spring", damping: 15, stiffness: 100 }}
-              className="relative w-full max-w-[340px] h-auto max-h-[90dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+              className="relative w-full max-w-[340px] h-auto max-h-[85dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
             >
               {/* Card Image - Shrinkable for mobile safety */}
               <div className="relative flex-1 min-h-[150px] bg-zinc-950 overflow-hidden shrink">
