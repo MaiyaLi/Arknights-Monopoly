@@ -2961,6 +2961,22 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [gameState.currentPlayerIndex, gameState.hasRolled, gameState.canRollAgain, gameState.isRolling, gameState.activeTrade, gameState.activeAuction, isMoving, tiles, gameState.players, aiSendMessage]);
+  
+  // AI Heartbeat - Auto-recovery for stuck turns in single player
+  useEffect(() => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && currentPlayer?.isAI && !gameState.winner && !gameState.isRolling && !isMoving) {
+      const fallback = setTimeout(() => {
+        if (!gameState.hasRolled) {
+          rollDice();
+        } else if (tiles[currentPlayer.position].type === 'PROPERTY' && !tiles[currentPlayer.position].ownerId) {
+          buyProperty();
+        } else {
+          nextTurn();
+        }
+      }, 10000); // 10s fallback heartbeat
+      return () => clearTimeout(fallback);
+    }
+  }, [currentPlayer, gameState.gameMode, gameState.winner, gameState.isRolling, isMoving, gameState.hasRolled, rollDice, buyProperty, nextTurn, tiles]);
 
   // AI Trade Response Effect
   useEffect(() => {
@@ -4108,6 +4124,12 @@ const App: React.FC = () => {
                   <div className="flex flex-col sm:flex-row gap-3 w-full">
                     <button 
                       onClick={() => {
+                        if (gameState.gameMode === 'SINGLEPLAYER') {
+                          resetGame();
+                          setShowForfeitConfirm(false);
+                          return;
+                        }
+                        
                         if (localPlayer) {
                           // Emit explicitly for server-side property release and identity stabilization
                           socket?.emit('forfeit-game', { 
@@ -4665,7 +4687,7 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col gap-1 items-center min-h-[40px]">
-                  {isLocalTurn && (
+                  {isLocalTurn && !currentPlayer?.isAI ? (
                     <>
                       <div className="flex gap-1 justify-center flex-wrap max-w-[300px]">
                         {currentPlayer?.inJail && !gameState.hasRolled && (
@@ -4696,7 +4718,7 @@ const App: React.FC = () => {
 
                         <button
                           onClick={rollDice}
-                          disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || !!gameState.winner || currentPlayer?.isAI}
+                          disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || !!gameState.winner}
                           className="px-4 py-2.5 bg-orange-500 text-black text-[11px] font-black uppercase italic tracking-widest rounded hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1.5 shadow-xl shadow-orange-500/20"
                         >
                           {gameState.isRolling ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : <Zap className="w-4 h-4 fill-black" />}
@@ -4707,7 +4729,7 @@ const App: React.FC = () => {
                           <>
                             <button
                               onClick={buyProperty}
-                              disabled={(currentPlayer?.orundum || 0) < (tiles[currentPlayer.position].cost || 0) || !gameState.hasRolled || currentPlayer?.isAI}
+                              disabled={(currentPlayer?.orundum || 0) < (tiles[currentPlayer.position].cost || 0) || !gameState.hasRolled}
                               className="px-3 py-2 border border-orange-500 text-orange-500 text-[10px] font-black uppercase italic tracking-widest rounded hover:bg-orange-500/10 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-lg shadow-orange-500/10"
                             >
                               <Package className="w-3.5 h-3.5" /> Acquire
@@ -4724,7 +4746,7 @@ const App: React.FC = () => {
 
                         <button
                           onClick={nextTurn}
-                          disabled={gameState.isRolling || !gameState.hasRolled || gameState.canRollAgain || !!gameState.winner || (currentPlayer?.orundum || 0) < 0 || currentPlayer?.isAI}
+                          disabled={gameState.isRolling || !gameState.hasRolled || gameState.canRollAgain || !!gameState.winner || (currentPlayer?.orundum || 0) < 0}
                           className="px-3 py-2 border border-zinc-100 text-zinc-100 text-[10px] font-black uppercase italic tracking-widest rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-lg"
                         >
                           <LogOut className="w-3.5 h-3.5" /> End Turn
@@ -4752,7 +4774,17 @@ const App: React.FC = () => {
                         ))}
                       </div>
                     </>
-                  )}
+                  ) : isLocalTurn && currentPlayer?.isAI ? (
+                    <div className="flex flex-col items-center gap-2 py-2">
+                       <div className="flex items-center gap-3 px-6 py-2 bg-zinc-950/80 border border-zinc-800 rounded-lg shadow-[0_0_30px_rgba(0,0,0,0.5)]">
+                         <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
+                         <div className="flex flex-col">
+                           <span className="text-[10px] font-black text-orange-500 uppercase italic tracking-widest leading-none">Tactical Processing</span>
+                           <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-tighter italic">AI Operation in Progress</span>
+                         </div>
+                       </div>
+                    </div>
+                  ) : null}
                 </div>
 
               </div>
