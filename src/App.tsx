@@ -3615,8 +3615,12 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-2 px-3 py-1 bg-black/40 border border-zinc-800 rounded-full">
                       <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
                       <span className={`text-[9px] font-black uppercase tracking-widest ${isConnected ? 'text-green-500' : 'text-red-500'}`}>
-                        {isConnected ? 'Signal: Linked' : 'Signal: Lost'} | V8.5-STABLE
+                        {isConnected ? 'Signal: Linked' : 'Signal: Lost'}
                       </span>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-1 bg-orange-500/10 border border-orange-500/30 rounded-full">
+                      <span className="text-[9px] font-black uppercase text-orange-500 tracking-widest leading-none">Version: </span>
+                      <span className="text-[9px] font-black uppercase text-white tracking-widest leading-none">8.5-STABLE</span>
                     </div>
                     {socket && !isConnected && (
                       <button 
@@ -4016,7 +4020,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 3. Footer Area - Sticky Buttons */}
-                      <div className="flex-none p-4 pb-12 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                      <div className="flex-none p-4 pb-16 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
                         <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
