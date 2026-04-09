@@ -1400,6 +1400,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    console.log("%c[PRTS] SYSTEM DEPLOY: V8.5-STABLE - HEARTBEAT ACTIVE", "color: #f97316; font-weight: 900; font-size: 14px;");
     // Only the active player (or host if game hasn't started) should be the source of truth for state broadcasts
     const isActivePlayer = currentPlayer && currentPlayer.id === localPlayer?.id;
     const shouldSync = (gameState.gameMode !== 'SINGLEPLAYER' && socket && gameState.roomId) && 
@@ -4441,7 +4442,7 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Shield className="text-orange-500 w-6 h-6" />
-                <h1 className="text-xl font-black tracking-tighter uppercase italic">Rhodes Island</h1>
+                <h1 className="text-xl font-black tracking-tighter uppercase italic text-orange-500">Rhodes Island</h1>
               </div>
               <button 
                 className="text-zinc-500 hover:text-white transition-colors" 
