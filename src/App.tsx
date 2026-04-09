@@ -427,6 +427,7 @@ const App: React.FC = () => {
   const [showMobileTeam, setShowMobileTeam] = useState(false);
   const [showMobileLog, setShowMobileLog] = useState(false);
   const [showMobileReport, setShowMobileReport] = useState(false);
+  const [showPostBankruptcyChoice, setShowPostBankruptcyChoice] = useState(false);
   const [showJoinRoom, setShowJoinRoom] = useState(false);
   const [joinRoomId, setJoinRoomId] = useState('');
   const [isJoining, setIsJoining] = useState(false);
@@ -896,29 +897,33 @@ const App: React.FC = () => {
           newGameMode = 'MULTIPLAYER_JOIN';
         }
 
+        const hasSyncedState = syncedGameState && typeof syncedGameState === 'object';
         const newState = { 
           ...prev, 
           roomId, 
           isHost,
           gameMode: newGameMode,
-          // If we are rejoining a live game, prioritize the synced state
-          ...(syncedGameState && typeof syncedGameState === 'object' ? syncedGameState : {})
+          // Only merge shared state that won't wipe critical local context
+          ...(hasSyncedState ? Object.fromEntries(Object.entries(syncedGameState).filter(([k]) => !['isHost', 'roomId', 'gameMode', 'chatMessages', 'players'].includes(k))) : {})
         };
         
+        // Ensure tiles are NEVER wiped during sync
+        if (hasSyncedState && syncedGameState.tiles) {
+          newState.tiles = syncedGameState.tiles;
+        } else if (!newState.tiles) {
+          newState.tiles = [...prev.tiles];
+        }
+
         // Sync players if provided
-        if (players && Array.isArray(players)) {
+        if (players && Array.isArray(players) && players.length > 0) {
           newState.players = hydratePlayers(players);
+        } else if (hasSyncedState && syncedGameState.players && Array.isArray(syncedGameState.players)) {
+          newState.players = hydratePlayers(syncedGameState.players);
         }
         
-        if (syncedGameState && typeof syncedGameState === 'object') {
-          const { isHost: _ih, roomId: _ri, gameMode: _gm, chatMessages: _cm, players: _ps, ...sharedState } = syncedGameState;
-          if (Object.keys(sharedState).length > 0) {
-            Object.assign(newState, sharedState);
-          }
-          if (_ps && Array.isArray(_ps) && _ps.length > 0) {
-            newState.players = hydratePlayers(_ps);
-          }
-        }
+        if (status === 'IN_PROGRESS') newState.gameStarted = true;
+        
+        return newState;
         
         if (status === 'IN_PROGRESS') newState.gameStarted = true;
         
@@ -1527,7 +1532,10 @@ const App: React.FC = () => {
 
   const isAuctionTurn = gameState.activeAuction && (localPlayer?.id === gameState.activeAuction.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex] || (localPlayer?.email && gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex])?.email === localPlayer.email));
 
-  const startAuction = useCallback((tileId: number) => {
+  const startAuction = useCallback((tileId: number, isAiAction = false) => {
+    // STRICT GUARD: Only authorized local player or AI logic can start an auction
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
+
     // If an auction is already active for this tile, don't restart it
     if (gameState.activeAuction && gameState.activeAuction.tileId === tileId) return;
 
@@ -1558,9 +1566,11 @@ const App: React.FC = () => {
     addToLog(`Auction started for ${tile.name}.`);
   }, [gameState.activeAuction, gameState.players, tiles, socket]);
 
-  const placeBid = useCallback((amount: number) => {
+  const placeBid = useCallback((amount: number, isAiAction = false) => {
+    // STRICT GUARD: Only authorized local player or AI logic can bid
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     const auction = gameState.activeAuction;
-    if (!auction) return;
+    if (!auction || !localPlayer) return;
 
     const bidderId = auction.biddingPlayerIds[auction.currentPlayerIndex];
     const bidder = gameState.players.find(p => p.id === bidderId)!;
@@ -1623,7 +1633,8 @@ const App: React.FC = () => {
     addToLog(`${bidder.name} bid ${amount} Orundum.`);
   }, [gameState.activeAuction, gameState.players, tiles, socket]);
 
-  const skipBid = useCallback(() => {
+  const skipBid = useCallback((isAiAction = false) => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     const auction = gameState.activeAuction;
     if (!auction) return;
 
@@ -1778,7 +1789,8 @@ const App: React.FC = () => {
     });
   }, [canTradeProperty, socket]);
 
-  const proposeTrade = useCallback(() => {
+  const proposeTrade = useCallback((isAiAction = false) => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     setGameState(prev => {
       const trade = prev.activeTrade;
       if (!trade) return prev;
@@ -1809,7 +1821,8 @@ const App: React.FC = () => {
     });
   }, [socket]);
 
-  const rejectTrade = useCallback(() => {
+  const rejectTrade = useCallback((isAiAction = false) => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     setGameState(prev => {
       const msg = 'Trade offer rejected.';
       const newState = {
@@ -1828,7 +1841,8 @@ const App: React.FC = () => {
     });
   }, [socket]);
 
-  const acceptTrade = useCallback(() => {
+  const acceptTrade = useCallback((isAiAction = false) => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     setGameState(prev => {
       const trade = prev.activeTrade;
       if (!trade) return prev;
@@ -1931,8 +1945,9 @@ const App: React.FC = () => {
     });
   };
 
-  const mortgageProperty = (tileId: number) => {
+  const mortgageProperty = (tileId: number, isAiAction = false) => {
     setGameState(prev => {
+      if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return prev;
       const currentP = prev.players[prev.currentPlayerIndex];
       const tile = prev.tiles[tileId];
       if (currentP && tile.ownerId === currentP.id && (tile.dorms || 0) === 0 && !tile.isMortgaged) {
@@ -1954,8 +1969,9 @@ const App: React.FC = () => {
     });
   };
 
-  const unmortgageProperty = (tileId: number) => {
+  const unmortgageProperty = (tileId: number, isAiAction = false) => {
     setGameState(prev => {
+      if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return prev;
       const currentP = prev.players[prev.currentPlayerIndex];
       const tile = prev.tiles[tileId];
       if (currentP && tile.ownerId === currentP.id && tile.isMortgaged) {
@@ -1982,8 +1998,11 @@ const App: React.FC = () => {
 
 
 
-  const nextTurn = useCallback(() => {
+  const nextTurn = useCallback((isAiAction = false) => {
     if (gameState.players.length === 0) return;
+
+    // Turn isolation: Prevent human interaction during AI turns in singleplayer
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     
     // Calculate next index before state update to avoid race conditions with socket emission
     let nextIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
@@ -2091,6 +2110,10 @@ const App: React.FC = () => {
       const isLocalPlayer = player.id === socket?.id || (prev.gameMode === 'SINGLEPLAYER' && player.id === 'player-1');
       if (isLocalPlayer) {
         updateProfileStats(100 + Math.floor(prev.turnCount / 10) * 50, 'LOSS');
+        // Trigger post-bankruptcy choice modal for multiplayer
+        if (prev.gameMode !== 'SINGLEPLAYER') {
+          setTimeout(() => setShowPostBankruptcyChoice(true), 2000);
+        }
       }
 
       const newState = {
@@ -2522,7 +2545,9 @@ const App: React.FC = () => {
     setIsMoving(false);
   }, [gameState.currentPlayerIndex, settings.animationSpeed, handleTileAction, socket]);
 
-  const buyProperty = () => {
+  const buyProperty = useCallback(() => {
+    // STRICT GUARD: Prevent actions for AI and block manual input during non-local turns in singleplayer
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn) return;
     if (gameState.activeAuction) return; // Prevent purchase during active auction
     setGameState(prev => {
       const currentP = prev.players[prev.currentPlayerIndex];
@@ -2624,12 +2649,22 @@ const App: React.FC = () => {
       return prev;
     });
   };
+            socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync || {} });
+          }
+
+          return newState;
+        }
+      }
+      return prev;
+    });
+  };
 
 
 
 
 
-  const payJailFee = useCallback(() => {
+  const payJailFee = useCallback((isAiAction = false) => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     setGameState(prev => {
       const currentP = prev.players[prev.currentPlayerIndex];
       if (currentP?.inJail && currentP.orundum >= JAIL_FEE) {
@@ -2654,6 +2689,10 @@ const App: React.FC = () => {
 
 
   const rollDice = useCallback(() => {
+    // SECURITY GUARD: Only allow human player events to proceed if it is their turn in singleplayer.
+    // AI events are triggered by useEffect and ignore this function's manual invocation path where possible,
+    // or are explicitly allowed by checked context.
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn) return;
     if (gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || gameState.winner || isMoving) return;
 
     setGameState(prev => ({ ...prev, isRolling: true, canRollAgain: false }));
@@ -2868,13 +2907,13 @@ const App: React.FC = () => {
         if (!gameState.hasRolled) {
           if (currentPlayer.inJail) {
             if (currentPlayer.orundum >= JAIL_FEE * 2) {
-              payJailFee();
+              payJailFee(true);
               aiSendMessage(`Paying the fine to get back to work.`, currentPlayer);
             } else {
-              rollDice();
+              rollDice(true);
             }
           } else {
-            rollDice();
+            rollDice(true);
           }
         } else {
           const tile = tiles[currentPlayer.position];
@@ -2882,10 +2921,10 @@ const App: React.FC = () => {
           
           if (isBuyable) {
             if (currentPlayer.orundum >= (tile.cost || 0) + 200) {
-              buyProperty();
+              buyProperty(true);
               aiSendMessage(`Acquired ${tile.name}. Strategic expansion complete.`, currentPlayer);
             } else {
-              startAuction(currentPlayer.position);
+              startAuction(currentPlayer.position, true);
               aiSendMessage(`I'll let the market decide the value of ${tile.name}.`, currentPlayer);
             }
           } else {
@@ -2894,82 +2933,82 @@ const App: React.FC = () => {
             // 1. Try to unmortgage properties if wealthy
             const mortgaged = tiles.find(t => t.ownerId === currentPlayer.id && t.isMortgaged && currentPlayer.orundum > (t.mortgage || 0) * 2 + 1000);
             if (mortgaged) {
-              mortgageProperty(mortgaged.id);
-              aiSendMessage(`Unmortgaging ${mortgaged.name}. It's back in operation.`, currentPlayer);
+              unmortgageProperty(mortgaged.id); // unmortgageProperty doesn't have guard yet, but good to check
+              aiSendMessage(`Unmortmaging ${mortgaged.name}. It's back in operation.`, currentPlayer);
               return;
             }
 
-            // 2. Try to initiate a trade to complete a set
-            const now = Date.now();
-            if (!gameState.activeTrade && (!gameState.lastAiTradeTime || now - gameState.lastAiTradeTime > 60000)) {
-              const myProperties = tiles.filter(t => t.ownerId === currentPlayer.id);
-              const incompleteGroups = [...new Set(myProperties.map(t => t.group))].filter(group => {
-                if (!group) return false;
-                const groupTiles = tiles.filter(t => t.group === group);
-                const ownedCount = groupTiles.filter(t => t.ownerId === currentPlayer.id).length;
-                return ownedCount > 0 && ownedCount < groupTiles.length;
-              });
-
-              for (const group of incompleteGroups) {
-                const groupTiles = tiles.filter(t => t.group === group);
-                const missingTile = groupTiles.find(t => t.ownerId && t.ownerId !== currentPlayer.id);
-                if (missingTile && missingTile.ownerId) {
-                  const owner = gameState.players.find(p => p.id === missingTile.ownerId);
-                  if (owner && !owner.isAI && currentPlayer.orundum > (missingTile.cost || 0) * 2) {
-                    // Offer 1.5x cost for the missing tile
-                    const offerAmount = Math.floor((missingTile.cost || 0) * 1.5);
-                    setGameState(prev => ({
-                      ...prev,
-                      lastAiTradeTime: now,
-                      activeTrade: {
-                        proposerId: currentPlayer.id,
-                        receiverId: owner.id,
-                        proposerProperties: [],
-                        receiverProperties: [missingTile.id],
-                        proposerOrundum: offerAmount,
-                        receiverOrundum: 0,
-                        status: 'PROPOSED',
-                        waitingForId: owner.id
-                      }
-                    }));
-                    aiSendMessage(`Doctor ${owner.name}, I'm interested in ${missingTile.name}. Here is a fair offer.`, currentPlayer);
-                    return;
-                  }
-                }
-              }
-            }
-
-            // 3. Try building if possible
-            const buildableProperties = tiles.filter(t => 
-              t.ownerId === currentPlayer.id && 
-              t.type === 'PROPERTY' && 
-              (t.dorms || 0) < 5 && 
-              !t.isMortgaged
-            );
-
-            const validBuildables = buildableProperties.filter(t => {
-              const groupTiles = tiles.filter(gt => gt.group === t.group);
-              const ownsAll = groupTiles.every(gt => gt.ownerId === currentPlayer.id);
-              const anyMortgaged = groupTiles.some(gt => gt.isMortgaged);
-              const minDormsInGroup = Math.min(...groupTiles.map(gt => gt.dorms || 0));
-              return ownsAll && !anyMortgaged && (t.dorms || 0) <= minDormsInGroup;
-            });
-
-            validBuildables.sort((a, b) => (b.buildCost || 0) - (a.buildCost || 0));
-
-            const buildable = validBuildables.find(t => {
-              const effectiveCost = Math.floor((t.buildCost || 0) * 0.75);
-              return currentPlayer.orundum >= effectiveCost + 1000;
-            });
-
-            if (buildable) {
-              buildDorm(buildable.id);
-              aiSendMessage(`Upgrading facilities at ${buildable.name}.`, currentPlayer);
-            } else if (gameState.canRollAgain) {
-              rollDice();
-            } else {
-              nextTurn();
-            }
+             // 2. Try to initiate a trade to complete a set
+             const now = Date.now();
+             if (!gameState.activeTrade && (!gameState.lastAiTradeTime || now - gameState.lastAiTradeTime > 60000)) {
+               const myProperties = tiles.filter(t => t.ownerId === currentPlayer.id);
+               const incompleteGroups = [...new Set(myProperties.map(t => t.group))].filter(group => {
+                 if (!group) return false;
+                 const groupTiles = tiles.filter(t => t.group === group);
+                 const ownedCount = groupTiles.filter(t => t.ownerId === currentPlayer.id).length;
+                 return ownedCount > 0 && ownedCount < groupTiles.length;
+               });
+ 
+               for (const group of incompleteGroups) {
+                 const groupTiles = tiles.filter(t => t.group === group);
+                 const missingTile = groupTiles.find(t => t.ownerId && t.ownerId !== currentPlayer.id);
+                 if (missingTile && missingTile.ownerId) {
+                   const owner = gameState.players.find(p => p.id === missingTile.ownerId);
+                   if (owner && !owner.isAI && currentPlayer.orundum > (missingTile.cost || 0) * 2) {
+                     // Offer 1.5x cost for the missing tile
+                     const offerAmount = Math.floor((missingTile.cost || 0) * 1.5);
+                     setGameState(prev => ({
+                       ...prev,
+                       lastAiTradeTime: now,
+                       activeTrade: {
+                         proposerId: currentPlayer.id,
+                         receiverId: owner.id,
+                         proposerProperties: [],
+                         receiverProperties: [missingTile.id],
+                         proposerOrundum: offerAmount,
+                         receiverOrundum: 0,
+                         status: 'PROPOSED',
+                         waitingForId: owner.id
+                       }
+                     }));
+                     aiSendMessage(`Doctor ${owner.name}, I'm interested in ${missingTile.name}. Here is a fair offer.`, currentPlayer);
+                     return;
+                   }
+                 }
+               }
+             }
+ 
+             // 3. Try building if possible
+             const buildableProperties = tiles.filter(t => 
+               t.ownerId === currentPlayer.id && 
+               t.type === 'PROPERTY' && 
+               (t.dorms || 0) < 5 && 
+               !t.isMortgaged
+             );
+ 
+             const validBuildables = buildableProperties.filter(t => {
+               const groupTiles = tiles.filter(gt => gt.group === t.group);
+               const ownsAll = groupTiles.every(gt => gt.ownerId === currentPlayer.id);
+               const anyMortgaged = groupTiles.some(gt => gt.isMortgaged);
+               const minDormsInGroup = Math.min(...groupTiles.map(gt => gt.dorms || 0));
+               return ownsAll && !anyMortgaged && (t.dorms || 0) <= minDormsInGroup;
+             });
+ 
+             validBuildables.sort((a, b) => (b.buildCost || 0) - (a.buildCost || 0));
+ 
+             const buildable = validBuildables.find(t => {
+               const effectiveCost = Math.floor((t.buildCost || 0) * 0.75);
+               return currentPlayer.orundum >= effectiveCost + 1000;
+             });
+ 
+             if (buildable) {
+               buildDorm(buildable.id, true);
+               aiSendMessage(`Upgrading facilities at ${buildable.name}.`, currentPlayer);
+             } else if (gameState.canRollAgain) {
+               rollDice(true);
+             } else {
+               nextTurn(true);
+             }
           }
         }
       }, 1000);
@@ -2982,11 +3021,11 @@ const App: React.FC = () => {
     if (gameState.gameMode === 'SINGLEPLAYER' && currentPlayer?.isAI && !gameState.winner && !gameState.isRolling && !isMoving) {
       const fallback = setTimeout(() => {
         if (!gameState.hasRolled) {
-          rollDice();
+          rollDice(true);
         } else if (tiles[currentPlayer.position].type === 'PROPERTY' && !tiles[currentPlayer.position].ownerId) {
-          buyProperty();
+          buyProperty(true);
         } else {
-          nextTurn();
+          nextTurn(true);
         }
       }, 10000); // 10s fallback heartbeat
       return () => clearTimeout(fallback);
@@ -3039,7 +3078,7 @@ const App: React.FC = () => {
           const { gettingValue, givingValue } = evaluateTrade();
 
           if (gettingValue >= givingValue * 1.1) {
-            acceptTrade();
+            acceptTrade(true);
             aiSendMessage(`This trade seems fair. I accept.`, waitingPlayer);
           } else if (gettingValue >= givingValue * 0.8 && trade.status === 'PROPOSED') {
             // Counter offer: ask for more money
@@ -3051,10 +3090,10 @@ const App: React.FC = () => {
             } else {
               updateTrade({ proposerOrundum: trade.proposerOrundum + gap });
             }
-            proposeTrade();
+            proposeTrade(true);
             aiSendMessage(`I'm interested, but I'll need a bit more Orundum to close the deal.`, waitingPlayer);
           } else {
-            rejectTrade();
+            rejectTrade(true);
             aiSendMessage(`I'm not interested in this offer.`, waitingPlayer);
           }
         }, 1500);
@@ -3409,6 +3448,32 @@ const App: React.FC = () => {
                     </motion.div>
                   )}
                 </div>
+
+                {/* Tactical Utility Grid - Mirroring Landing Screen style but smaller for Join Mission */}
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-zinc-800/50">
+                  <button 
+                    onClick={() => setShowProfile(true)}
+                    className="py-2 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span className="text-[6px] font-black uppercase tracking-widest">Dossier</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowArchives(true)}
+                    className="py-2 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                  >
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span className="text-[6px] font-black uppercase tracking-widest">Archives</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowSettings(true)}
+                    className="py-2 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span className="text-[6px] font-black uppercase tracking-widest">Terminal</span>
+                  </button>
+                </div>
+              </div>
               </motion.div>
           ) : !showCharacterSelect ? (
             <motion.div 
@@ -3553,6 +3618,32 @@ const App: React.FC = () => {
                         <span className="text-[10px]">Join Link</span>
                       </button>
                     </div>
+
+                    {/* Tactical Utility Grid - Main Menu Access */}
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      <button 
+                        onClick={() => setShowProfile(true)}
+                        className="py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-600 transition-all flex flex-col items-center justify-center gap-1 group"
+                      >
+                        <User className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                        <span className="text-[7px] font-black uppercase tracking-widest">Dossier</span>
+                      </button>
+                      <button 
+                        onClick={() => setShowArchives(true)}
+                        className="py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-600 transition-all flex flex-col items-center justify-center gap-1 group"
+                      >
+                        <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                        <span className="text-[7px] font-black uppercase tracking-widest">Archives</span>
+                      </button>
+                      <button 
+                        onClick={() => setShowSettings(true)}
+                        className="py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-600 transition-all flex flex-col items-center justify-center gap-1 group"
+                      >
+                        <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform" />
+                        <span className="text-[7px] font-black uppercase tracking-widest">Terminal</span>
+                      </button>
+                    </div>
+                  </div>
 
                     <button 
                       onClick={handleQueue}
@@ -3702,17 +3793,43 @@ const App: React.FC = () => {
                   </div>
                 )}
                 
-                <button 
-                  onClick={() => {
-                    if (gameState.roomId && socket) socket.emit('leave-room', gameState.roomId);
-                    setShowCharacterSelect(false);
-                    setPreviewOperator(null);
-                    setGameState(prev => ({ ...prev, gameMode: null, roomId: null, isHost: false, players: [] }));
-                  }}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-red-950/20 text-red-500 border border-red-900/30 hover:bg-red-600 hover:text-white transition-all"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setShowProfile(true)}
+                    className="w-10 h-10 flex flex-col items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all"
+                  >
+                    <User className="w-4 h-4" />
+                    <span className="text-[5px] font-black uppercase">Dossier</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowArchives(true)}
+                    className="w-10 h-10 flex flex-col items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    <span className="text-[5px] font-black uppercase">Archive</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowSettings(true)}
+                    className="w-10 h-10 flex flex-col items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-all"
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span className="text-[5px] font-black uppercase">Terminal</span>
+                  </button>
+
+                  <div className="w-px h-6 bg-zinc-800 mx-1" />
+
+                  <button 
+                    onClick={() => {
+                      if (gameState.roomId && socket) socket.emit('leave-room', gameState.roomId);
+                      setShowCharacterSelect(false);
+                      setPreviewOperator(null);
+                      setGameState(prev => ({ ...prev, gameMode: null, roomId: null, isHost: false, players: [] }));
+                    }}
+                    className="w-10 h-10 flex items-center justify-center rounded-lg bg-red-950/20 text-red-500 border border-red-900/30 hover:bg-red-600 hover:text-white transition-all"
+                  >
+                    <LogOut className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               {/* Main Selection Area - Split Pane */}
@@ -4294,7 +4411,7 @@ const App: React.FC = () => {
         )}
         {/* Monopoly Board */}
         <LayoutGroup>
-          {!gameState.players.length || !currentPlayer ? (
+          {!gameState.players.length || !currentPlayer || (!localPlayer && gameState.gameMode !== 'SINGLEPLAYER') ? (
             <div className="relative z-10 w-[490px] h-[490px] bg-zinc-900 border border-zinc-800 rounded-sm flex flex-col items-center justify-center gap-4 overflow-hidden">
                {/* Background scanning effect */}
                <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(249,115,22,0.05)_50%,transparent_100%)] bg-[length:100%_4px] animate-scan opacity-20" />
@@ -4486,7 +4603,7 @@ const App: React.FC = () => {
         <div className="lg:hidden bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 p-2 z-40 flex gap-1.5 overflow-x-auto no-scrollbar shadow-[0_-10px_30px_rgba(0,0,0,0.5)] landscape:border-t-0 landscape:border-l landscape:w-16 landscape:flex-col landscape:h-full landscape:justify-center landscape:p-1">
           <button
             onClick={rollDice}
-            disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain)}
+            disabled={!isLocalTurn || gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain)}
             className="flex-1 min-w-[80px] py-3 bg-orange-500 text-black text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-50 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
           >
             <Zap className="w-4 h-4 landscape:w-3 landscape:h-3" /> 
@@ -4522,6 +4639,21 @@ const App: React.FC = () => {
             <LogOut className="w-4 h-4 landscape:w-3 landscape:h-3" /> 
             <span className="landscape:text-[9px]">End</span>
           </button>
+             {/* Mobile: Tactical Abort for Spectators */}
+            {localPlayer?.isBankrupt && (
+              <button
+                onClick={() => {
+                  if (socket && gameState.roomId) {
+                    socket.emit('leave-room', gameState.roomId);
+                  }
+                  resetGame();
+                }}
+                className="p-3 bg-red-600/20 border border-red-500/50 text-red-500 font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 active:scale-95 transition-all"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Abort</span>
+              </button>
+            )}
         </div>
       )}
 
@@ -5586,12 +5718,27 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-              {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
-                <div className="mt-8 pt-6 border-t border-zinc-800">
-                  <button onClick={() => { setShowForfeitConfirm(true); setShowSettings(false); }} 
-                    className="w-full py-4 bg-red-900/50 border border-red-500/30 hover:bg-red-500/20 text-red-500 font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 group">
-                    <ShieldAlert className="w-5 h-5 group-hover:animate-pulse" /> Tactical Abort
-                  </button>
+              {gameState.gameStarted && !gameState.winner && localPlayer && (
+                <div className="mt-8 pt-6 border-t border-zinc-800 space-y-3">
+                  {!localPlayer.isBankrupt ? (
+                    <button onClick={() => { setShowForfeitConfirm(true); setShowSettings(false); }} 
+                      className="w-full py-4 bg-red-900/50 border border-red-500/30 hover:bg-red-500/20 text-red-500 font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 group">
+                      <ShieldAlert className="w-5 h-5 group-hover:animate-pulse" /> Tactical Abort
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        if (socket && gameState.roomId) {
+                          socket.emit('leave-room', gameState.roomId);
+                        }
+                        resetGame();
+                        setShowSettings(false);
+                      }}
+                      className="w-full py-4 bg-zinc-800 border border-zinc-700 text-zinc-400 font-black uppercase italic tracking-widest rounded-xl hover:bg-red-600 hover:text-white hover:border-red-500 transition-all flex items-center justify-center gap-3 group"
+                    >
+                      <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform" /> Exit Sector
+                    </button>
+                  )}
                 </div>
               )}
               <button onClick={() => setShowSettings(false)} className="w-full mt-4 py-4 bg-zinc-800 text-zinc-400 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-700 transition-all">Close Settings</button>
@@ -5778,6 +5925,86 @@ const App: React.FC = () => {
         )}
         {isQueuing && <SearchingOverlay />}
         {!isConnected && socket && <SignalLostOverlay />}
+      </AnimatePresence>
+      {/* Mission Debrief Modal (Post-Forfeit Choices) */}
+      <AnimatePresence>
+        {showPostBankruptcyChoice && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4"
+          >
+            <div className="w-full max-w-lg bg-zinc-950 border-2 border-orange-500/50 rounded-2xl shadow-[0_0_50px_rgba(249,115,22,0.2)] overflow-hidden relative">
+              <div className="absolute top-0 left-0 w-full h-1 bg-orange-500 animate-pulse" />
+              
+              <div className="p-8 flex flex-col gap-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-4xl font-black italic uppercase tracking-tighter text-white">Mission <span className="text-orange-500">Debrief</span></h2>
+                  <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Tactical Withdrawal Confirmed</div>
+                </div>
+
+                {/* Personal Records Summary */}
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-lg border-2 border-zinc-800 overflow-hidden bg-zinc-950">
+                      <img src={profile.avatarId ? AVATARS.find(a => a.id === profile.avatarId)?.url : AVATARS[0].url} alt="Profile" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-xs font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Authorization: {profile.name}</div>
+                      <div className="text-2xl font-black italic text-white uppercase tracking-tight">Level {profile.level}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="h-1.5 flex-1 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-orange-500" style={{ width: '45%' }} />
+                        </div>
+                        <span className="text-[9px] font-mono text-orange-500 font-bold">EXP GAIN: +100</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/50">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Operation Status</span>
+                      <span className="text-xs font-bold text-red-500 uppercase">Terminated (Loss)</span>
+                    </div>
+                    <div className="flex flex-col gap-1 text-right">
+                      <span className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Total Missions</span>
+                      <span className="text-xs font-bold text-white uppercase">{profile.matches + 1}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-zinc-500 text-[10px] text-center italic px-4">
+                    "Doctor, your tactical footprint remains in the sector. You may continue to oversee the mission or redeploy to Rhodes Island."
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button 
+                      onClick={() => setShowPostBankruptcyChoice(false)}
+                      className="py-4 bg-zinc-800 border border-zinc-700 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-700 transition-all flex items-center justify-center gap-2 group"
+                    >
+                      <Globe className="w-5 h-5 group-hover:scale-110 transition-all" />
+                      Spectate
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (socket && gameState.roomId) {
+                          socket.emit('leave-room', gameState.roomId);
+                        }
+                        resetGame();
+                      }}
+                      className="py-4 bg-red-600 text-white font-black uppercase italic tracking-widest rounded-xl hover:bg-red-500 transition-all shadow-[0_0_20px_rgba(220,38,38,0.3)] flex items-center justify-center gap-2 group"
+                    >
+                      <LogOut className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                      Exit Sector
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );

@@ -747,12 +747,20 @@ async function startServer() {
       if (roomId) {
         const room = rooms.get(roomId);
         if (room) {
-          room.players = room.players.filter(p => p.id !== socket.id);
-          room.selectedOperators = room.players
-            .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
-            .filter(Boolean);
+          if (room.status === 'LOBBY') {
+            room.players = room.players.filter(p => p.id !== socket.id);
+            room.selectedOperators = room.players
+              .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
+              .filter(Boolean);
+          } else {
+            // In game: Mark them as disconnected in the lobby state (optional UI hint)
+            const playerIdx = room.players.findIndex(p => p.id === socket.id);
+            if (playerIdx !== -1) {
+              room.players[playerIdx].status = 'DISCONNECTED';
+            }
+          }
 
-          if (room.players.length === 0) {
+          if (room.players.every(p => p.status === 'DISCONNECTED') || room.players.length === 0) {
             if (room.turnTimer) clearInterval(room.turnTimer);
             if (room.missionTimer) clearInterval(room.missionTimer);
             rooms.delete(roomId);
@@ -762,7 +770,8 @@ async function startServer() {
             io.to(roomId).emit('player-left', { 
               playerId: socket.id, 
               players: room.players, 
-              selectedOperators: room.selectedOperators 
+              selectedOperators: room.selectedOperators,
+              isInGame: room.status === 'IN_PROGRESS'
             });
           }
         }
