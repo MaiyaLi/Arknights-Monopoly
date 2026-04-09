@@ -3,8 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Arknights Monopoly</title>
+    <title>[V8.6-STABLE] Arknights Monopoly</title>
     <link rel="icon" type="image/png" href="/logo.png" />
+    <script>
+      // FORCED CACHE PURGE - CLEAR ALL SERVICE WORKERS
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister().then(function() {
+              console.log('[PRTS] STALE SERVICE WORKER TERMINATED');
+            });
+          }
+        });
+      }
+      // Force reload on identity mismatch
+      if (window.localStorage.getItem('ARKNIGHTS_VERSION') !== '8.6') {
+        console.log('[PRTS] INITIALIZING DEEP REFRESH...');
+        window.localStorage.clear();
+        window.localStorage.setItem('ARKNIGHTS_VERSION', '8.6');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

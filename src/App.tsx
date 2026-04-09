@@ -4037,12 +4037,17 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 3. Footer Area - Sticky Buttons */}
-                      <div className="flex-none p-4 pb-16 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                      <div className="flex-none p-4 pb-32 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-50 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
                         <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
                               !gameState.players.find(p => (p.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'player-1')) && (typeof p.operator === 'string' ? p.operator : p.operator?.name) === previewOperator.name);
                             
+                            // FORCE isAI flag if ID starts with ai-
+                            const pId = socket?.id || (gameState.gameMode === 'SINGLEPLAYER' ? 'player-1' : '');
+                            const myPlayer = gameState.players.find(p => p.id === pId);
+                            if (myPlayer?.id?.startsWith('ai-') && !myPlayer.isAI) myPlayer.isAI = true;
+
                             return (
                               <button 
                                 onClick={() => startGame(previewOperator)}
@@ -4255,7 +4260,7 @@ const App: React.FC = () => {
              style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
         
       {/* Portrait Orientation Overlay */}
-      <div className="fixed inset-0 z-[200] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
+      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
         <div className="w-24 h-24 mb-6 relative">
           <motion.div
             animate={{ rotate: 90 }}
@@ -4632,15 +4637,28 @@ const App: React.FC = () => {
         )}
         {/* Monopoly Board */}
         <LayoutGroup>
-          <div 
-            className="relative z-10 shadow-2xl rounded-sm w-[490px] h-[490px] origin-center transition-transform duration-500 overflow-hidden"
-            style={{ 
-              backgroundImage: `url("${MAP_IMAGE_URL}")`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              transform: `scale(${boardScale})`
-            }}
-          >
+          {!gameState.players.length || !currentPlayer ? (
+            <div className="flex flex-col items-center justify-center gap-6 p-12 bg-black/60 backdrop-blur-3xl rounded-3xl border border-zinc-800 z-50">
+              <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
+              <div className="text-xl font-black italic uppercase tracking-tighter text-white">Operational Re-Sync In Progress...</div>
+              <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Awaiting sector authorization...</div>
+              <button 
+                onClick={() => window.location.reload()}
+                className="mt-4 px-6 py-2 bg-zinc-900 border border-zinc-800 text-zinc-400 text-[10px] font-black uppercase italic tracking-widest hover:text-white transition-all rounded-sm"
+              >
+                Manual Forced Reset
+              </button>
+            </div>
+          ) : (
+            <div 
+              className="relative z-10 shadow-2xl rounded-sm w-[490px] h-[490px] origin-center transition-transform duration-500 overflow-hidden"
+              style={{ 
+                backgroundImage: `url("${MAP_IMAGE_URL}")`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                transform: `scale(${boardScale})`
+              }}
+            >
           {/* Top Row */}
           <div className="flex">
             {renderTile(tiles[20], 'corner')}
@@ -5523,21 +5541,21 @@ const App: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-4"
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4 overflow-hidden"
           >
             <motion.div
               initial={{ scale: 0.8, y: 50, rotateY: 90 }}
               animate={{ scale: 1, y: 0, rotateY: 0 }}
               exit={{ scale: 0.8, opacity: 0, transition: { duration: 0.2 } }}
               transition={{ type: "spring", damping: 15, stiffness: 100 }}
-              className="relative w-full max-w-[340px] h-auto max-h-[90dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+              className="relative w-full max-w-[340px] h-auto max-h-[95dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
             >
               {/* Card Image - Shrinkable for mobile safety */}
-              <div className="relative flex-1 min-h-[150px] bg-zinc-950 overflow-hidden shrink">
+              <div className="relative flex-none h-[160px] sm:h-[200px] bg-zinc-950 overflow-hidden">
                 <img 
                   src={gameState.activeCard.image} 
                   alt={gameState.activeCard.title} 
-                  className="w-full h-full object-cover opacity-90"
+                  className="w-full h-full object-contain sm:object-cover opacity-90"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent" />
                 
@@ -5552,8 +5570,8 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Card Details */}
-              <div className="p-6 pt-2 bg-zinc-900 flex flex-col gap-3">
+              {/* Card Details - Scrollable for long text safety */}
+              <div className="p-6 pt-2 bg-zinc-900 flex flex-col gap-3 overflow-y-auto max-h-[300px]">
                 <div className="space-y-1">
                   <h3 className="text-xl font-black italic uppercase tracking-tighter text-orange-500 leading-none">
                     {gameState.activeCard.title}
@@ -5571,7 +5589,10 @@ const App: React.FC = () => {
                     {gameState.activeCard.effect}
                   </div>
                 </div>
+              </div>
 
+              {/* Sticky Footer for Action */}
+              <div className="p-4 bg-zinc-900 border-t border-zinc-800 flex-none">
                 <button
                   onClick={handleApplyCardEffect}
                   disabled={currentPlayer?.isAI}
@@ -5621,6 +5642,7 @@ const App: React.FC = () => {
                     referrerPolicy="no-referrer"
                   />
                 </div>
+              </div>
               </div>
               <h2 className="text-6xl font-black italic uppercase tracking-tighter text-white mb-4">Mission Complete</h2>
               <p className="text-3xl text-orange-500 font-bold uppercase mb-12">
