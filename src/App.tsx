@@ -2545,9 +2545,9 @@ const App: React.FC = () => {
     setIsMoving(false);
   }, [gameState.currentPlayerIndex, settings.animationSpeed, handleTileAction, socket]);
 
-  const buyProperty = useCallback(() => {
+  const buyProperty = useCallback((isAiAction = false) => {
     // STRICT GUARD: Prevent actions for AI and block manual input during non-local turns in singleplayer
-    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn) return;
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     if (gameState.activeAuction) return; // Prevent purchase during active auction
     setGameState(prev => {
       const currentP = prev.players[prev.currentPlayerIndex];
@@ -2591,10 +2591,11 @@ const App: React.FC = () => {
       }
       return prev;
     });
-  };
+  }, [gameState.currentPlayerIndex, gameState.gameMode, isLocalTurn, gameState.activeAuction, gameState.tiles, gameState.players, socket, addToLog, playSound]);
 
 
-  const buildDorm = (tileId: number) => {
+  const buildDorm = useCallback((tileId: number, isAiAction = false) => {
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     setGameState(prev => {
       const currentP = prev.players[prev.currentPlayerIndex];
       const tile = prev.tiles[tileId];
@@ -2648,16 +2649,7 @@ const App: React.FC = () => {
       }
       return prev;
     });
-  };
-            socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync || {} });
-          }
-
-          return newState;
-        }
-      }
-      return prev;
-    });
-  };
+  }, [gameState.currentPlayerIndex, gameState.gameMode, isLocalTurn, gameState.tiles, gameState.players, socket, addToLog]);
 
 
 
@@ -2933,8 +2925,8 @@ const App: React.FC = () => {
             // 1. Try to unmortgage properties if wealthy
             const mortgaged = tiles.find(t => t.ownerId === currentPlayer.id && t.isMortgaged && currentPlayer.orundum > (t.mortgage || 0) * 2 + 1000);
             if (mortgaged) {
-              unmortgageProperty(mortgaged.id); // unmortgageProperty doesn't have guard yet, but good to check
-              aiSendMessage(`Unmortmaging ${mortgaged.name}. It's back in operation.`, currentPlayer);
+              unmortgageProperty(mortgaged.id, true);
+              aiSendMessage(`Unmortgaging ${mortgaged.name}. It's back in operation.`, currentPlayer);
               return;
             }
 
@@ -3473,7 +3465,6 @@ const App: React.FC = () => {
                     <span className="text-[6px] font-black uppercase tracking-widest">Terminal</span>
                   </button>
                 </div>
-              </div>
               </motion.div>
           ) : !showCharacterSelect ? (
             <motion.div 
@@ -3619,36 +3610,34 @@ const App: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Tactical Utility Grid - Main Menu Access */}
-                    <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-3 gap-2 mt-2 pt-4 border-t border-zinc-800/50">
                       <button 
                         onClick={() => setShowProfile(true)}
-                        className="py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-600 transition-all flex flex-col items-center justify-center gap-1 group"
+                        className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                       >
-                        <User className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                        <User className="w-4 h-4" />
                         <span className="text-[7px] font-black uppercase tracking-widest">Dossier</span>
                       </button>
                       <button 
                         onClick={() => setShowArchives(true)}
-                        className="py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-600 transition-all flex flex-col items-center justify-center gap-1 group"
+                        className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                       >
-                        <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                        <TrendingUp className="w-4 h-4" />
                         <span className="text-[7px] font-black uppercase tracking-widest">Archives</span>
                       </button>
                       <button 
                         onClick={() => setShowSettings(true)}
-                        className="py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-600 transition-all flex flex-col items-center justify-center gap-1 group"
+                        className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                       >
-                        <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform" />
+                        <Settings className="w-4 h-4" />
                         <span className="text-[7px] font-black uppercase tracking-widest">Terminal</span>
                       </button>
                     </div>
-                  </div>
 
                     <button 
                       onClick={handleQueue}
                       disabled={isQueuing}
-                      className={`w-full py-3 bg-zinc-800/50 border border-zinc-700 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 text-xs ${isQueuing ? 'opacity-50' : ''}`}
+                      className={`w-full py-3 bg-zinc-800/50 border border-zinc-700 text-zinc-300 font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 text-xs mt-2 ${isQueuing ? 'opacity-50' : ''}`}
                     >
                       {isQueuing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
                       {isQueuing ? 'Searching for Signals...' : 'Standard Deployment Queue'}
@@ -3657,35 +3646,11 @@ const App: React.FC = () => {
                     {localStorage.getItem('arknights_monopoly_active_session') && !gameState.roomId && (
                       <button 
                         onClick={handleRejoinSector}
-                        className="w-full py-3 bg-zinc-900 border-2 border-orange-500/50 text-orange-500 font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-500/10 transition-all flex items-center justify-center gap-3 text-xs animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+                        className="w-full py-3 bg-zinc-900 border-2 border-orange-500/50 text-orange-500 font-black uppercase italic tracking-widest rounded-xl hover:bg-orange-500/10 transition-all flex items-center justify-center gap-3 text-xs animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.3)] mt-2"
                       >
                         <History className="w-4 h-4" /> Emergency Rejoin
                       </button>
                     )}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 mt-2 pt-4 border-t border-zinc-800/50">
-                    <button 
-                      onClick={() => setShowProfile(true)}
-                      className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1"
-                    >
-                      <User className="w-4 h-4" />
-                      <span className="text-[7px] font-black uppercase tracking-widest">Dossier</span>
-                    </button>
-                    <button 
-                      onClick={() => setShowArchives(true)}
-                      className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1"
-                    >
-                      <TrendingUp className="w-4 h-4" />
-                      <span className="text-[7px] font-black uppercase tracking-widest">Archives</span>
-                    </button>
-                    <button 
-                      onClick={() => setShowSettings(true)}
-                      className="py-2.5 bg-zinc-800/30 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1"
-                    >
-                      <Settings className="w-4 h-4" />
-                      <span className="text-[7px] font-black uppercase tracking-widest">Terminal</span>
-                    </button>
                   </div>
                 </div>
               </div>
