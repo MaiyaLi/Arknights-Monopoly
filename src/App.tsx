@@ -3636,7 +3636,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1 bg-orange-500/10 border border-orange-500/30 rounded-full">
                       <span className="text-[9px] font-black uppercase text-orange-500 tracking-widest leading-none">Version: </span>
-                      <span className="text-[9px] font-black uppercase text-white tracking-widest leading-none">8.5-STABLE</span>
+                      <span className="text-[9px] font-black uppercase text-white tracking-widest leading-none">8.6-STABLE</span>
                     </div>
                     {socket && !isConnected && (
                       <button 
