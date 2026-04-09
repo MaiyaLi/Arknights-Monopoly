@@ -4693,9 +4693,9 @@ const App: React.FC = () => {
                         <button
                           onClick={rollDice}
                           disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || !!gameState.winner}
-                          className="px-3 py-1.5 bg-orange-500 text-black text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1 shadow-xl shadow-orange-500/20"
+                          className="px-4 py-2.5 bg-orange-500 text-black text-[11px] font-black uppercase italic tracking-widest rounded hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1.5 shadow-xl shadow-orange-500/20"
                         >
-                          {gameState.isRolling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                          {gameState.isRolling ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : <Zap className="w-4 h-4 fill-black" />}
                           {gameState.canRollAgain ? 'Roll Again' : 'Roll Dice'}
                         </button>
                         
@@ -4704,16 +4704,16 @@ const App: React.FC = () => {
                             <button
                               onClick={buyProperty}
                               disabled={(currentPlayer?.orundum || 0) < (tiles[currentPlayer.position].cost || 0) || !gameState.hasRolled}
-                              className="px-2 py-1 border border-orange-500 text-orange-500 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-500/10 disabled:opacity-50 transition-all flex items-center gap-1 shadow-lg shadow-orange-500/10"
+                              className="px-3 py-2 border border-orange-500 text-orange-500 text-[10px] font-black uppercase italic tracking-widest rounded hover:bg-orange-500/10 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-lg shadow-orange-500/10"
                             >
-                              <Package className="w-3 h-3" /> Acquire
+                              <Package className="w-3.5 h-3.5" /> Acquire
                             </button>
                             <button
                               onClick={() => startAuction(currentPlayer.position)}
                               disabled={!gameState.hasRolled}
-                              className="px-2 py-1 border border-zinc-700 text-zinc-400 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-zinc-800 disabled:opacity-30 transition-all flex items-center gap-1 shadow-lg shadow-lg"
+                              className="px-3 py-2 border border-zinc-700 text-zinc-400 text-[10px] font-black uppercase italic tracking-widest rounded hover:bg-zinc-800 disabled:opacity-30 transition-all flex items-center gap-1.5"
                             >
-                              <TrendingUp className="w-3 h-3" /> Auction
+                              <TrendingUp className="w-3.5 h-3.5" /> Auction
                             </button>
                           </>
                         )}
@@ -4721,9 +4721,9 @@ const App: React.FC = () => {
                         <button
                           onClick={nextTurn}
                           disabled={gameState.isRolling || !gameState.hasRolled || gameState.canRollAgain || !!gameState.winner || (currentPlayer?.orundum || 0) < 0}
-                          className="px-2 py-1 border border-zinc-100 text-zinc-100 text-[9px] font-black uppercase italic tracking-widest rounded-sm hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1 shadow-lg"
+                          className="px-3 py-2 border border-zinc-100 text-zinc-100 text-[10px] font-black uppercase italic tracking-widest rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-lg"
                         >
-                          <LogOut className="w-3 h-3" /> End Turn
+                          <LogOut className="w-3.5 h-3.5" /> End Turn
                         </button>
 
                         {currentPlayer && currentPlayer.orundum < 0 && (
@@ -5493,10 +5493,10 @@ const App: React.FC = () => {
               animate={{ scale: 1, y: 0, rotateY: 0 }}
               exit={{ scale: 0.8, opacity: 0, transition: { duration: 0.2 } }}
               transition={{ type: "spring", damping: 15, stiffness: 100 }}
-              className="relative w-full max-w-[320px] aspect-[2/3.5] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+              className="relative w-full max-w-[340px] h-auto max-h-[90dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
             >
-              {/* Card Image */}
-              <div className="relative flex-1 bg-zinc-950 overflow-hidden">
+              {/* Card Image - Shrinkable for mobile safety */}
+              <div className="relative flex-1 min-h-[150px] bg-zinc-950 overflow-hidden shrink">
                 <img 
                   src={gameState.activeCard.image} 
                   alt={gameState.activeCard.title} 
