@@ -835,7 +835,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Phase III: Force-Hardlink to Render (Bypass environment variables)
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://arknights-monopoly.onrender.com';
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://arknights-monopoly-server.onrender.com';
     
     addToLog(`Mission Control: Attempting tactical deep-link to ${BACKEND_URL}...`);
     
