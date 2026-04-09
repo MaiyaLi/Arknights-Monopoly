@@ -4805,7 +4805,6 @@ const App: React.FC = () => {
                     </div>
                   ) : null}
                 </div>
-                </div>
               </div>
             </div>
 
@@ -5620,44 +5619,6 @@ const App: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Winner Overlay */}
-      <AnimatePresence>
-        {gameState.winner && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center"
-          >
-            <motion.div
-              initial={{ scale: 0.5, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="max-w-lg"
-            >
-              <div className="relative mb-8">
-                <Trophy className="w-40 h-40 text-orange-500 mx-auto drop-shadow-[0_0_20px_rgba(249,115,22,0.4)]" />
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-20 h-20 rounded-2xl border-4 border-zinc-900 overflow-hidden shadow-2xl">
-                  <img 
-                    src={gameState.players.find(p => p.id === gameState.winner)?.avatar?.url} 
-                    alt="Winner Avatar" 
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-              <h2 className="text-6xl font-black italic uppercase tracking-tighter text-white mb-4">Mission Complete</h2>
-              <p className="text-3xl text-orange-500 font-bold uppercase mb-12">
-                {gameState.players.find(p => p.id === gameState.winner)?.name} is the last operator standing
-              </p>
-              <button
-                onClick={() => window.location.reload()}
-                className="px-12 py-4 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 transition-all"
-              >
-                Restart Operation
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <AnimatePresence>
         {showMobileReport && (
           <motion.div 
@@ -5812,20 +5773,8 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
-        ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-4">
-                  <div className="w-16 h-16 rounded-full border-2 border-dashed border-zinc-800 flex items-center justify-center">
-                    <ShieldAlert className="w-8 h-8 opacity-20" />
-                  </div>
-                  <p className="text-xs font-black uppercase tracking-widest italic text-center">Select a sector for<br/>intelligence analysis</p>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+              </div>
+
 
       {/* Global Modals */}
       <AnimatePresence>
