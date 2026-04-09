@@ -1400,7 +1400,6 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    console.log("%c[PRTS] SYSTEM DEPLOY: V8.5-STABLE - HEARTBEAT ACTIVE", "color: #f97316; font-weight: 900; font-size: 14px;");
     // Only the active player (or host if game hasn't started) should be the source of truth for state broadcasts
     const isActivePlayer = currentPlayer && currentPlayer.id === localPlayer?.id;
     const shouldSync = (gameState.gameMode !== 'SINGLEPLAYER' && socket && gameState.roomId) && 
@@ -4037,17 +4036,12 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 3. Footer Area - Sticky Buttons */}
-                      <div className="flex-none p-4 pb-32 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-50 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                      <div className="flex-none p-4 pb-16 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
                         <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
                               !gameState.players.find(p => (p.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'player-1')) && (typeof p.operator === 'string' ? p.operator : p.operator?.name) === previewOperator.name);
                             
-                            // FORCE isAI flag if ID starts with ai-
-                            const pId = socket?.id || (gameState.gameMode === 'SINGLEPLAYER' ? 'player-1' : '');
-                            const myPlayer = gameState.players.find(p => p.id === pId);
-                            if (myPlayer?.id?.startsWith('ai-') && !myPlayer.isAI) myPlayer.isAI = true;
-
                             return (
                               <button 
                                 onClick={() => startGame(previewOperator)}
@@ -4260,7 +4254,7 @@ const App: React.FC = () => {
              style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
         
       {/* Portrait Orientation Overlay */}
-      <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
+      <div className="fixed inset-0 z-[200] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
         <div className="w-24 h-24 mb-6 relative">
           <motion.div
             animate={{ rotate: 90 }}
@@ -4447,7 +4441,7 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Shield className="text-orange-500 w-6 h-6" />
-                <h1 className="text-xl font-black tracking-tighter uppercase italic text-orange-500">Rhodes Island</h1>
+                <h1 className="text-xl font-black tracking-tighter uppercase italic">Rhodes Island</h1>
               </div>
               <button 
                 className="text-zinc-500 hover:text-white transition-colors" 
@@ -4638,16 +4632,14 @@ const App: React.FC = () => {
         {/* Monopoly Board */}
         <LayoutGroup>
           {!gameState.players.length || !currentPlayer ? (
-            <div className="flex flex-col items-center justify-center gap-6 p-12 bg-black/60 backdrop-blur-3xl rounded-3xl border border-zinc-800 z-50">
-              <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
-              <div className="text-xl font-black italic uppercase tracking-tighter text-white">Operational Re-Sync In Progress...</div>
-              <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Awaiting sector authorization...</div>
-              <button 
-                onClick={() => window.location.reload()}
-                className="mt-4 px-6 py-2 bg-zinc-900 border border-zinc-800 text-zinc-400 text-[10px] font-black uppercase italic tracking-widest hover:text-white transition-all rounded-sm"
-              >
-                Manual Forced Reset
-              </button>
+            <div className="relative z-10 w-[490px] h-[490px] bg-zinc-900 border border-zinc-800 rounded-sm flex flex-col items-center justify-center gap-4 overflow-hidden">
+               {/* Background scanning effect */}
+               <div className="absolute inset-0 bg-[linear-gradient(transparent_0%,rgba(249,115,22,0.05)_50%,transparent_100%)] bg-[length:100%_4px] animate-scan opacity-20" />
+               <Loader2 className="w-12 h-12 animate-spin text-orange-500 opacity-40 shadow-[0_0_20px_rgba(249,115,22,0.2)]" />
+               <div className="text-center relative z-10">
+                 <p className="text-orange-500 font-black uppercase italic tracking-widest text-xs">Operation Re-Syncing...</p>
+                 <p className="text-zinc-500 font-bold uppercase text-[8px] mt-1 tracking-tighter">Establishing Tactical Link via PRTS</p>
+               </div>
             </div>
           ) : (
             <div 
@@ -4805,6 +4797,7 @@ const App: React.FC = () => {
                     </div>
                   ) : null}
                 </div>
+
               </div>
             </div>
 
@@ -4820,7 +4813,7 @@ const App: React.FC = () => {
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(id => renderTile(tiles[id], 'bottom'))}
             {renderTile(tiles[10], 'corner')}
           </div>
-        </div>
+          </div>
           )}
         </LayoutGroup>
       </div>
@@ -5541,21 +5534,21 @@ const App: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-xl p-4 overflow-hidden"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-4"
           >
             <motion.div
               initial={{ scale: 0.8, y: 50, rotateY: 90 }}
               animate={{ scale: 1, y: 0, rotateY: 0 }}
               exit={{ scale: 0.8, opacity: 0, transition: { duration: 0.2 } }}
               transition={{ type: "spring", damping: 15, stiffness: 100 }}
-              className="relative w-full max-w-[340px] h-auto max-h-[95dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+              className="relative w-full max-w-[340px] h-auto max-h-[90dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
             >
               {/* Card Image - Shrinkable for mobile safety */}
-              <div className="relative flex-none h-[160px] sm:h-[200px] bg-zinc-950 overflow-hidden">
+              <div className="relative flex-1 min-h-[150px] bg-zinc-950 overflow-hidden shrink">
                 <img 
                   src={gameState.activeCard.image} 
                   alt={gameState.activeCard.title} 
-                  className="w-full h-full object-contain sm:object-cover opacity-90"
+                  className="w-full h-full object-cover opacity-90"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent" />
                 
@@ -5570,8 +5563,8 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Card Details - Scrollable for long text safety */}
-              <div className="p-6 pt-2 bg-zinc-900 flex flex-col gap-3 overflow-y-auto max-h-[300px]">
+              {/* Card Details - Scrollable for mobile safety */}
+              <div className="p-6 pt-2 bg-zinc-900 flex-1 overflow-y-auto no-scrollbar flex flex-col gap-3">
                 <div className="space-y-1">
                   <h3 className="text-xl font-black italic uppercase tracking-tighter text-orange-500 leading-none">
                     {gameState.activeCard.title}
@@ -5591,8 +5584,8 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Sticky Footer for Action */}
-              <div className="p-4 bg-zinc-900 border-t border-zinc-800 flex-none">
+              {/* Action Footer - Fixed at bottom */}
+              <div className="p-6 pt-0 bg-zinc-900 border-t border-white/5 relative z-10">
                 <button
                   onClick={handleApplyCardEffect}
                   disabled={currentPlayer?.isAI}
@@ -5618,6 +5611,8 @@ const App: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+
 
       <AnimatePresence>
         {showMobileReport && (
@@ -5773,8 +5768,20 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
-              </div>
-
+              )}
+            </div>
+          </div>
+        ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-4">
+                  <div className="w-16 h-16 rounded-full border-2 border-dashed border-zinc-800 flex items-center justify-center">
+                    <ShieldAlert className="w-8 h-8 opacity-20" />
+                  </div>
+                  <p className="text-xs font-black uppercase tracking-widest italic text-center">Select a sector for<br/>intelligence analysis</p>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       {/* Global Modals */}
       <AnimatePresence>
@@ -5837,6 +5844,8 @@ const App: React.FC = () => {
             </motion.div>
           </div>
         )}
+
+
 
         {showGameOver && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
