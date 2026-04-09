@@ -5643,8 +5643,6 @@ const App: React.FC = () => {
                     referrerPolicy="no-referrer"
                   />
                 </div>
-              </div>
-              </div>
               <h2 className="text-6xl font-black italic uppercase tracking-tighter text-white mb-4">Mission Complete</h2>
               <p className="text-3xl text-orange-500 font-bold uppercase mb-12">
                 {gameState.players.find(p => p.id === gameState.winner)?.name} is the last operator standing
@@ -5890,8 +5888,6 @@ const App: React.FC = () => {
             </motion.div>
           </div>
         )}
-
-
 
         {showGameOver && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
