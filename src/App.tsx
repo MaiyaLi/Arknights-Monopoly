@@ -2680,11 +2680,11 @@ const App: React.FC = () => {
   }, []);
 
 
-  const rollDice = useCallback(() => {
+  const rollDice = useCallback((isAiAction = false) => {
     // SECURITY GUARD: Only allow human player events to proceed if it is their turn in singleplayer.
     // AI events are triggered by useEffect and ignore this function's manual invocation path where possible,
     // or are explicitly allowed by checked context.
-    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn) return;
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
     if (gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || gameState.winner || isMoving) return;
 
     setGameState(prev => ({ ...prev, isRolling: true, canRollAgain: false }));
@@ -3276,11 +3276,11 @@ const App: React.FC = () => {
     return <LoadingScreen progress={loadingProgress} />;
   }
 
-  if (!gameState.gameStarted) {
-    return (
-      <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans flex items-center justify-center p-1.5 md:p-8 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10 pointer-events-none" 
+  return (
+    <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans selection:bg-orange-500/30 overflow-hidden relative flex flex-col">
+      <div className="absolute inset-0 z-0 pointer-events-none opacity-20" 
              style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+      {!gameState.gameStarted ? (
         
         <AnimatePresence mode="wait">
           {!profile.email ? (
@@ -3987,13 +3987,8 @@ const App: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Global Modals: Moved to root return path */}
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-[100dvh] w-[100dvw] bg-[#0a0a0a] text-zinc-100 font-sans selection:bg-orange-500/30 overflow-hidden relative flex flex-col landscape:flex-row">
+        ) : (
+          <div className="h-full w-full overflow-hidden relative flex flex-col landscape:flex-row">
       {/* Futuristic Grid Background */}
       <div className="absolute inset-0 z-0 pointer-events-none opacity-20" 
              style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
@@ -5542,8 +5537,10 @@ const App: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+    )}
 
-      {/* Global Modals */}
+    {/* Global Modals */}
       <AnimatePresence>
         {showProfile && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
