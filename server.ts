@@ -107,13 +107,24 @@ async function startServer() {
 
   // Save user to Firestore
   async function saveUser(email: string, userData: UserData) {
-    if (!usersCollection) return; // Silent skip if no cloud DB
-    try {
-      const { socketId, ...toSave } = userData;
-      await usersCollection.doc(email).set(toSave);
-    } catch (e) {
-      console.error(`Failed to save user ${email} to cloud:`, e);
+    if (usersCollection) {
+      try {
+        const { socketId, ...toSave } = userData;
+        await usersCollection.doc(email).set(toSave);
+      } catch (e) {
+        console.error(`Failed to save user ${email} to cloud:`, e);
+      }
     }
+
+    // Local fallback
+    try {
+      const DB_PATH = path.join(process.cwd(), 'database.json');
+      let currentDB = {};
+      if (fs.existsSync(DB_PATH)) currentDB = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+      const { socketId, ...toSave } = userData;
+      (currentDB as any)[email] = toSave;
+      fs.writeFileSync(DB_PATH, JSON.stringify(currentDB, null, 2));
+    } catch (e) { console.error(e); }
   }
 
   await loadUsers();
@@ -328,16 +339,36 @@ async function startServer() {
       console.log(`Manual room created: ${roomId} by ${socket.id} (Stored in Firestore)`);
     });
 
-    socket.on('identify-user', async ({ email, name, avatarId }) => {
+     socket.on('identify-user', async ({ email, name, avatarId }) => {
       if (!email || !name) {
         socket.emit('error', 'Identification failed: Email and Name are required.');
         return;
       }
+
       let userData = users.get(email);
+      
+      // If not in memory, try to fetch from Firestore
+      if (!userData && usersCollection) {
+        try {
+          const cloudDoc = await usersCollection.doc(email).get();
+          if (cloudDoc.exists) {
+            userData = cloudDoc.data() as UserData;
+            console.log(`[Sector Recovery] Recovered Doctor ${email} from cloud.`);
+            users.set(email, { ...userData, socketId: socket.id });
+          }
+        } catch (e) {
+          console.error(`[Sector Recovery] Failed to scan cloud for ${email}:`, e);
+        }
+      }
+
       if (userData) {
-        if (userData.socketId !== socket.id && io.sockets.sockets.get(userData.socketId)) {
-          socket.emit('error', 'This email is already active in another session.');
-          return;
+        if (userData.socketId && userData.socketId !== socket.id) {
+          const oldSocket = io.sockets.sockets.get(userData.socketId);
+          if (oldSocket) {
+            console.log(`[Session Displacement] Kicking old session for ${email} (${userData.socketId})`);
+            oldSocket.emit('session-replaced');
+            oldSocket.disconnect(true);
+          }
         }
         userData.socketId = socket.id;
         userData.name = name;
@@ -436,6 +467,7 @@ async function startServer() {
              // Update active auctions
              if (room.gameState.activeAuction) {
                 const auction = room.gameState.activeAuction;
+                if (auction.highestBidderId === oldId) auction.highestBidderId = newId;
                 if (auction.bidderId === oldId) auction.bidderId = newId;
                 if (auction.highBidderId === oldId) auction.highBidderId = newId;
                 if (auction.biddingPlayerIds) {
@@ -660,8 +692,9 @@ async function startServer() {
         if (playerToForfeit && !playerToForfeit.isBankrupt) {
           console.log(`[Tactical Abort] Doctor ${playerToForfeit.name} initiated emergency withdrawal from ${roomId}.`);
           
-          // Update state: Set bankrupt
+          // Update state: Set bankrupt and mark as forfeited
           playerToForfeit.isBankrupt = true;
+          playerToForfeit.status = 'FORFEITED';
           
           // Release properties to neutral
           if (room.gameState.tiles) {
@@ -680,14 +713,17 @@ async function startServer() {
           // Track active players count BEFORE declaring the winner
           const activePlayers = room.gameState.players.filter(p => !p.isBankrupt);
           
-          // Add this player to rankings (rank is number of active players + 1)
+          // Add this player to rankings with enough data to render even if they leave
           room.gameState.rankings.unshift({
             id: playerToForfeit.id,
             name: playerToForfeit.name,
+            avatarId: playerToForfeit.avatarId,
+            operatorName: typeof playerToForfeit.operator === 'string' ? playerToForfeit.operator : playerToForfeit.operator?.name,
             rank: activePlayers.length + 1,
             stats: { 
-              orundum: playerToForfeit.orundum,
-              assets: (playerToForfeit.properties || []).length
+              orundum: playerToForfeit.orundum || 0,
+              assets: (playerToForfeit.properties || []).length,
+              status: playerToForfeit.status || 'FORFEITED'
             }
           });
 
@@ -701,10 +737,13 @@ async function startServer() {
             room.gameState.rankings.unshift({
               id: winner.id,
               name: winner.name,
+              avatarId: winner.avatarId,
+              operatorName: typeof winner.operator === 'string' ? winner.operator : winner.operator?.name,
               rank: 1,
               stats: {
-                orundum: winner.orundum,
-                assets: (winner.properties || []).length
+                orundum: winner.orundum || 0,
+                assets: (winner.properties || []).length,
+                status: winner.status || 'ACTIVE'
               }
             });
             // Ensure rankings are sorted by rank
@@ -735,16 +774,84 @@ async function startServer() {
     });
 
     socket.on('leave-room', async (roomId) => {
-      socket.leave(roomId);
-      socketToRoom.delete(socket.id);
       const room = rooms.get(roomId);
       if (room) {
-        room.players = room.players.filter(p => p.id !== socket.id);
+        // If game is in progress, treat leaving as a forfeit to preserve rankings
+        if (room.status === 'IN_PROGRESS' && room.gameState) {
+           const player = room.gameState.players.find((p: any) => p.id === socket.id);
+           if (player && !player.isBankrupt) {
+              console.log(`[Auto-Forfeit] Doctor ${player.name} left active session ${roomId}.`);
+              player.isBankrupt = true;
+              player.status = 'LEFT';
+              
+              if (!room.gameState.rankings) room.gameState.rankings = [];
+              const activeCount = room.gameState.players.filter((p: any) => !p.isBankrupt).length;
+              
+              const existingRank = room.gameState.rankings.findIndex((r: any) => r.id === player.id);
+              const rankingData = {
+                id: player.id,
+                name: player.name,
+                rank: activeCount + 1,
+                stats: { orundum: player.orundum, assets: (player.properties || []).length }
+              };
+
+              if (existingRank !== -1) {
+                room.gameState.rankings[existingRank] = rankingData;
+              } else {
+                room.gameState.rankings.unshift(rankingData);
+              }
+
+              if (activeCount === 1) {
+                const winner = room.gameState.players.find((p: any) => !p.isBankrupt);
+                if (winner) {
+                  room.gameState.winner = winner.id;
+                  const winnerRanking = {
+                    id: winner.id,
+                    name: winner.name,
+                    rank: 1,
+                    stats: { orundum: winner.orundum, assets: (winner.properties || []).length }
+                  };
+                  const winnerIdx = room.gameState.rankings.findIndex((r: any) => r.id === winner.id);
+                  if (winnerIdx !== -1) {
+                    room.gameState.rankings[winnerIdx] = winnerRanking;
+                  } else {
+                    room.gameState.rankings.unshift(winnerRanking);
+                  }
+                }
+              }
+              
+              // Ensure rankings are sorted by rank
+              room.gameState.rankings.sort((a: any, b: any) => a.rank - b.rank);
+              
+              io.to(roomId).emit('game-state-updated', room.gameState);
+           }
+        }
+
+        socket.leave(roomId);
+        socketToRoom.delete(socket.id);
+        
+        // BROAD LOCKDOWN: If we have ANY game state, we assume we are in an active mission.
+        const isGameInProgress = !!room.gameState || room.status === 'IN_PROGRESS' || room.status === 'active';
+        
+        if (!isGameInProgress) {
+           room.players = room.players.filter(p => p.id !== socket.id);
+        } else {
+           const lp = room.players.find(p => p.id === socket.id);
+           if (lp) {
+             lp.status = 'LEFT';
+             // Directly update game state for immediate sync
+             if (room.gameState && room.gameState.players) {
+               const gp = room.gameState.players.find((p: any) => p.id === socket.id);
+               if (gp) gp.status = 'LEFT';
+             }
+           }
+        }
+
         room.selectedOperators = room.players
           .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
           .filter(Boolean);
         
-        if (room.players.length === 0) {
+        if (room.players.length === 0 || (room.status === 'IN_PROGRESS' && room.players.every(p => p.status === 'DISCONNECTED' || p.status === 'LEFT'))) {
           if (room.turnTimer) clearInterval(room.turnTimer);
           if (room.missionTimer) clearInterval(room.missionTimer);
           rooms.delete(roomId);
@@ -754,12 +861,12 @@ async function startServer() {
           io.to(roomId).emit('player-left', { 
             playerId: socket.id, 
             players: room.players, 
-            selectedOperators: room.selectedOperators 
+            selectedOperators: room.selectedOperators,
+            isInGame: !!room.gameState || room.status === 'IN_PROGRESS'
           });
         }
-        socket.leave(roomId);
-        socketToRoom.delete(socket.id);
       }
+    });
     });
 
     socket.on('disconnect', async () => {
@@ -777,16 +884,26 @@ async function startServer() {
       if (roomId) {
         const room = rooms.get(roomId);
         if (room) {
-          if (room.status === 'LOBBY') {
+          // LOCKDOWN: Apply same append-only logic to disconnects
+          const isActuallyActive = (room.status === 'IN_PROGRESS' || room.status === 'active' || 
+                                   (room.gameState && room.gameState.gameStarted) ||
+                                   (room.gameState && room.gameState.winner));
+
+          if (!isActuallyActive && (room.status === 'LOBBY' || room.status === 'WAITING')) {
             room.players = room.players.filter(p => p.id !== socket.id);
             room.selectedOperators = room.players
               .map(p => typeof p.operator === 'string' ? p.operator : p.operator?.name)
               .filter(Boolean);
           } else {
-            // In game: Mark them as disconnected in the lobby state (optional UI hint)
+            // In game or selection: Mark them as disconnected but keep entry
             const playerIdx = room.players.findIndex(p => p.id === socket.id);
             if (playerIdx !== -1) {
               room.players[playerIdx].status = 'DISCONNECTED';
+              // Also update game state
+              if (room.gameState && room.gameState.players) {
+                const gp = room.gameState.players.find((p: any) => p.id === socket.id);
+                if (gp) gp.status = 'DISCONNECTED';
+              }
             }
           }
 
@@ -796,6 +913,55 @@ async function startServer() {
             rooms.delete(roomId);
             await deleteLobbyFromFirestore(roomId);
           } else {
+            // If in progress, also check for single remaining player win condition on disconnect
+            if (room.status === 'IN_PROGRESS' && room.gameState && !room.gameState.winner) {
+              const activePlayers = room.gameState.players.filter((p: any) => !p.isBankrupt && p.status !== 'DISCONNECTED' && p.status !== 'LEFT');
+              // Auto-forfeit on disconnect during active game
+              const disconnectedPlayer = room.gameState.players.find((p: any) => p.id === socket.id);
+              if (disconnectedPlayer && !disconnectedPlayer.isBankrupt) {
+                disconnectedPlayer.isBankrupt = true;
+                disconnectedPlayer.status = 'DISCONNECTED';
+                
+                if (!room.gameState.rankings) room.gameState.rankings = [];
+                const rankCount = room.gameState.players.filter((p: any) => !p.isBankrupt).length + 1;
+                
+                const existingRank = room.gameState.rankings.findIndex((r: any) => r.id === disconnectedPlayer.id);
+                const rankingData = {
+                  id: disconnectedPlayer.id,
+                  name: disconnectedPlayer.name,
+                  rank: rankCount,
+                  stats: { orundum: disconnectedPlayer.orundum, assets: (disconnectedPlayer.properties || []).length }
+                };
+
+                if (existingRank !== -1) {
+                  room.gameState.rankings[existingRank] = rankingData;
+                } else {
+                  room.gameState.rankings.unshift(rankingData);
+                }
+
+                const remainingActive = room.gameState.players.filter((p: any) => !p.isBankrupt);
+                if (remainingActive.length === 1) {
+                  const winner = remainingActive[0];
+                  room.gameState.winner = winner.id;
+                  const winnerRanking = {
+                    id: winner.id,
+                    name: winner.name,
+                    rank: 1,
+                    stats: { orundum: winner.orundum, assets: (winner.properties || []).length }
+                  };
+                  const winnerIdx = room.gameState.rankings.findIndex((r: any) => r.id === winner.id);
+                  if (winnerIdx !== -1) {
+                    room.gameState.rankings[winnerIdx] = winnerRanking;
+                  } else {
+                    room.gameState.rankings.unshift(winnerRanking);
+                  }
+                }
+                
+                room.gameState.rankings.sort((a: any, b: any) => a.rank - b.rank);
+                io.to(roomId).emit('game-state-updated', room.gameState);
+              }
+            }
+
             await saveLobbyToFirestore(roomId);
             io.to(roomId).emit('player-left', { 
               playerId: socket.id, 

@@ -241,7 +241,7 @@ const PlayerToken: React.FC<{ player: Player; animationSpeed: number }> = ({ pla
   return (
     <motion.div
       key={`${player.id}-${player.position}`}
-      className="w-6 h-6 md:w-8 md:h-8 relative z-20"
+      className="w-4 h-4 md:w-5 md:h-5 relative z-20"
       initial={{ scale: 0.5, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       transition={{ duration: 0.1 }}
@@ -475,6 +475,30 @@ const App: React.FC = () => {
       matches: 0
     };
   });
+  const [isIdentified, setIsIdentified] = useState(() => {
+    const saved = localStorage.getItem('arknights_monopoly_profile');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return !!parsed.email;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+
+  // Winner Detection Logic: Trigger mission-complete modal globally
+  useEffect(() => {
+    if (gameState.winner && !showGameOver) {
+      const winnerPlayer = gameState.players.find(p => p.id === gameState.winner);
+      if (winnerPlayer) {
+        addToLog(`MISSION SUCCESS: Sector secured by Doctor ${winnerPlayer.name}.`);
+        const timer = setTimeout(() => setShowGameOver(true), 1500); 
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState.winner, gameState.players, showGameOver, addToLog]);
 
   const [settings, setSettings] = useState({
     volume: 50,
@@ -586,6 +610,7 @@ const App: React.FC = () => {
   const [queuePosition, setQueuePosition] = useState(0);
   const [queueTotal, setQueueTotal] = useState(0);
   const [matchmakingCountdown, setMatchmakingCountdown] = useState<number | null>(null);
+  const [sessionReplaced, setSessionReplaced] = useState(false);
   const [lobbyDoc, setLobbyDoc] = useState<any>(null);
 
   // Asset Preloading Logic
@@ -836,8 +861,9 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Phase III: Force-Hardlink to Render (Bypass environment variables)
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://arknights-monopoly.onrender.com';
+    // Phase III: Dynamic Backend Initialization (Local-Aware)
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (isLocal ? `${window.location.protocol}//${window.location.hostname}:3000` : 'https://arknights-monopoly.onrender.com');
     
     addToLog(`Mission Control: Attempting tactical deep-link to ${BACKEND_URL}...`);
     
@@ -915,11 +941,26 @@ const App: React.FC = () => {
           newState.tiles = [...prev.tiles];
         }
 
-        // Sync players if provided
-        if (players && Array.isArray(players) && players.length > 0) {
-          newState.players = hydratePlayers(players);
-        } else if (hasSyncedState && syncedGameState.players && Array.isArray(syncedGameState.players)) {
-          newState.players = hydratePlayers(syncedGameState.players);
+        // Sync players with Identity Shield (Never allow player list to shrink during active sessions)
+        const incomingPlayers = (players && Array.isArray(players) && players.length > 0) ? players : 
+                              (hasSyncedState && syncedGameState.players && Array.isArray(syncedGameState.players)) ? syncedGameState.players : 
+                              null;
+
+        if (incomingPlayers) {
+          if (prev.gameStarted && prev.players.length > 0) {
+            // Shield: Merge instead of overwrite to prevent "Ghosting"
+            const activePool = prev.players.map(p => {
+              const incoming = incomingPlayers.find((ip: any) => ip.id === p.id || (p.email && ip.email === p.email));
+              // Preserve existing players, update their status if found, or mark as disconnected if missing
+              return incoming ? { ...p, ...incoming } : { ...p, status: p.status === 'LEFT' ? 'LEFT' : 'DISCONNECTED' };
+            });
+            const newJoiners = incomingPlayers.filter((ip: any) => 
+               !prev.players.some(p => p.id === ip.id || (p.email && ip.email === p.email))
+            );
+            newState.players = hydratePlayers([...activePool, ...newJoiners]);
+          } else {
+            newState.players = hydratePlayers(incomingPlayers);
+          }
         }
         
         if (status === 'IN_PROGRESS') {
@@ -982,10 +1023,23 @@ const App: React.FC = () => {
     newSocket.on('player-joined', ({ playerId, playerName, playerCount, status, players, selectedOperators }) => {
       addToLog(`A new Doctor has joined the mission (Total: ${playerCount}).`);
       
-      // Update our local players array and selected operators so everyone stays in sync
       if (players && Array.isArray(players)) {
         isNetworkUpdate.current = true;
-        setGameState(prev => ({ ...prev, players: hydratePlayers(players) }));
+        setGameState(prev => {
+          if (!prev.gameStarted) {
+            return { ...prev, players: hydratePlayers(players) };
+          } else {
+            // Soft merge during active game: Update connection status of existing players
+            const updatedPlayers = prev.players.map(p => {
+              const incoming = players.find(ip => ip.id === p.id || (p.email && ip.email === p.email));
+              if (incoming) {
+                return { ...p, id: incoming.id, status: incoming.status || 'ACTIVE' };
+              }
+              return p;
+            });
+            return { ...prev, players: updatedPlayers };
+          }
+        });
       }
       
       if (selectedOperators && Array.isArray(selectedOperators)) {
@@ -993,27 +1047,43 @@ const App: React.FC = () => {
       }
     });
 
-    newSocket.on('player-left', ({ playerId, players, selectedOperators }) => {
+    newSocket.on('player-left', ({ playerId, players, selectedOperators, isInGame }) => {
       isNetworkUpdate.current = true;
-      setSelectedOperators(selectedOperators);
+      if (selectedOperators && Array.isArray(selectedOperators)) {
+        setSelectedOperators(selectedOperators);
+      }
       
-      const hydratedPlayers = hydratePlayers(players);
       setGameState(prev => {
-        const newState = { ...prev, players: hydratedPlayers };
-        
-        // Multiplayer Victory Logic: If everyone else left, the last remaining active player wins
-        if (prev.gameStarted && !prev.winner) {
-          const activePlayers = hydratedPlayers.filter(p => !p.isBankrupt);
-          if (activePlayers.length === 1) {
-            newState.winner = activePlayers[0].id;
-            newState.message = `Tactical Victory: ${activePlayers[0].name} is the last Doctor standing!`;
+        // Only overwrite players list if game hasn't started
+        if (!prev.gameStarted) {
+          return { ...prev, players: hydratePlayers(players) };
+        } else {
+          // Mission Lockdown: Update connection status but NEVER remove participants
+          const updatedPlayers = prev.players.map(p => {
+            const incoming = players.find(ip => ip.id === p.id || (p.email && ip.email === p.email));
+            if (incoming) {
+              return { ...p, status: incoming.status };
+            }
+            if (p.id === playerId) {
+              return { ...p, status: 'LEFT' };
+            }
+            return p;
+          });
+          
+          const newState = { ...prev, players: updatedPlayers };
+          
+          if (!prev.winner) {
+            const activePool = updatedPlayers.filter(p => !p.isBankrupt && p.status !== 'DISCONNECTED' && p.status !== 'LEFT');
+            if (activePool.length === 1 && prev.players.length > 1) {
+              newState.winner = activePool[0].id;
+              newState.message = `Tactical Victory: ${activePool[0].name} is the last Doctor standing!`;
+            }
           }
+          return newState;
         }
-        
-        return newState;
       });
       
-      addToLog(`A Doctor has disconnected from the mission.`);
+      addToLog(`A Doctor has disconnected from the sector.`);
     });
 
     newSocket.on('waiting-in-queue', ({ position, total, countdown }) => {
@@ -1040,6 +1110,11 @@ const App: React.FC = () => {
         gameMode: prev.gameMode,
         roomId: prev.roomId
       }));
+    });
+
+    newSocket.on('session-replaced', () => {
+      setSessionReplaced(true);
+      socket?.disconnect();
     });
 
     newSocket.on('new-chat-message', (message) => {
@@ -1466,21 +1541,6 @@ const App: React.FC = () => {
       }
     }
   }, [gameState.players, gameState.gameStarted, gameState.winner, socket?.id, gameState.gameMode, gameState.turnCount, updateProfileStats]);
-
-  const calculateTotalAssets = useCallback((player: Player) => {
-    let total = player.orundum;
-    player.properties.forEach(tileId => {
-      const tile = tiles[tileId];
-      if (tile) {
-        // Liquidation Value: Cash + Mortgage Value (50% cost) + 50% Building Value
-        total += tile.isMortgaged ? 0 : (tile.mortgage || Math.floor((tile.cost || 0) / 2));
-        if (tile.dorms) {
-          total += Math.floor((tile.dorms * (tile.buildCost || 0)) * 0.5);
-        }
-      }
-    });
-    return total;
-  }, [tiles]);
 
   const resetGame = () => {
     setGameState({
@@ -2262,6 +2322,26 @@ const App: React.FC = () => {
     const groupTiles = tiles.filter(t => t.group === tile.group);
     const ownsAll = groupTiles.every(t => t.ownerId === owner.id);
     return ownsAll ? Math.floor((tile.buildCost || 0) * 0.75) : (tile.buildCost || 0);
+  }, [tiles]);
+
+  const calculateTotalAssets = useCallback((entity: any) => {
+    if (!entity) return 0;
+    
+    // Support Ranking objects from server
+    if (entity.stats) {
+      return (entity.stats.orundum || 0) + ((entity.stats.assets || 0) * 200);
+    }
+
+    // Support full Player objects
+    let total = entity.orundum || 0;
+    (entity.properties || []).forEach((id: number) => {
+      const tile = tiles[id];
+      if (tile) {
+        total += (tile.cost || 0);
+        total += (tile.dorms || 0) * (tile.buildCost || 0);
+      }
+    });
+    return total;
   }, [tiles]);
 
   const aiSendMessage = useCallback((text: string, aiPlayer: Player) => {
@@ -3326,6 +3406,30 @@ const App: React.FC = () => {
 
   return (
     <div className="h-[100dvh] w-[100dvw] bg-zinc-950 text-zinc-100 font-sans selection:bg-orange-500/30 overflow-hidden relative flex flex-col">
+      {/* Global Portrait Orientation Overlay */}
+      <div className="fixed inset-0 z-[1000] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden pointer-events-auto">
+        <div className="w-24 h-24 mb-6 relative">
+          <motion.div
+            animate={{ rotate: 90 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            className="w-full h-full border-4 border-orange-500 rounded-xl flex items-center justify-center"
+          >
+            <Smartphone className="w-12 h-12 text-orange-500" />
+          </motion.div>
+          <motion.div 
+            animate={{ opacity: [0, 1, 0] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className="absolute -right-4 top-1/2 -translate-y-1/2"
+          >
+            <RotateCw className="w-8 h-8 text-orange-500" />
+          </motion.div>
+        </div>
+        <h2 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Tactical Rotation Required</h2>
+        <p className="text-zinc-500 text-sm max-w-xs font-medium leading-relaxed">
+          Rhodes Island Tactical Interface is optimized for <span className="text-orange-500 font-bold italic">Landscape Orientation</span>. Please rotate your device to continue the operation.
+        </p>
+      </div>
+
       {/* Dynamic Background Layer */}
       <div 
         className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 pointer-events-none" 
@@ -3340,7 +3444,7 @@ const App: React.FC = () => {
       {!gameState.gameStarted ? (
         
         <AnimatePresence mode="wait">
-          {!profile.email ? (
+          {!isIdentified ? (
             <motion.div
               key="account-setup"
               initial={{ opacity: 0 }}
@@ -3413,6 +3517,7 @@ const App: React.FC = () => {
                       if (socket) {
                         socket.emit('identify-user', { email: profile.email, name: profile.name, avatarId: profile.avatarId });
                       }
+                      setIsIdentified(true);
                       setShowProfile(false);
                     }}
                     className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white font-black italic uppercase tracking-widest rounded-md scenario-btn-shadow transition-all flex items-center justify-center gap-2 group"
@@ -3426,13 +3531,14 @@ const App: React.FC = () => {
           ) : showJoinRoom ? (
 
 
-            <motion.div 
-              key="join-room"
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="z-10 w-full max-w-sm bg-zinc-950 border-2 border-orange-500/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
-            >
+             <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-md">
+                <motion.div 
+                  key="join-room"
+                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                  className="z-10 w-full max-w-sm bg-zinc-950 border-2 border-orange-500/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
+                >
               {/* Decorative scanline and grid */}
               <div className="absolute inset-0 pointer-events-none opacity-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.1)_0,transparent_100%)]" />
@@ -3557,7 +3663,8 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </div>
-            </motion.div>
+              </motion.div>
+            </div>
             ) : !showCharacterSelect ? (
             <motion.div 
               key="main-menu"
@@ -3711,7 +3818,7 @@ const App: React.FC = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="z-10 w-full max-w-7xl flex flex-col h-full max-h-full overflow-hidden relative"
+              className="z-10 w-full flex flex-col h-full max-h-full overflow-hidden relative"
             >
               {/* Mission Start Countdown Overlay */}
               <AnimatePresence>
@@ -3920,13 +4027,13 @@ const App: React.FC = () => {
                 {/* Right: Intelligence Dossier */}
                 <AnimatePresence mode="wait">
                   {previewOperator ? (
-                    <motion.div 
-                      key={previewOperator.name}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-50 fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 lg:overflow-hidden"
-                    >
+                        <motion.div 
+                          key={previewOperator.name}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] lg:border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-[100] fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 lg:overflow-hidden"
+                        >
                       {/* Dossier Background Decoration */}
                       <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] rounded-full pointer-events-none" />
                       
@@ -3980,7 +4087,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 3. Footer Area - Sticky Buttons - Increased safety padding for mobile */}
-                      <div className="flex-none p-4 pb-24 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                      <div className="flex-none p-4 pb-12 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-50 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
                         <div className="flex flex-col gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
@@ -4037,38 +4144,14 @@ const App: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-        ) : (
+         ) : (
           <div className="h-full w-full overflow-hidden relative flex flex-col landscape:flex-row">
-      {/* Futuristic Grid Background */}
-      <div className="absolute inset-0 z-0 pointer-events-none opacity-20" 
-             style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
-        
-      {/* Portrait Orientation Overlay */}
-      <div className="fixed inset-0 z-[200] bg-zinc-950 flex flex-col items-center justify-center p-8 text-center lg:hidden portrait:flex landscape:hidden">
-        <div className="w-24 h-24 mb-6 relative">
-          <motion.div
-            animate={{ rotate: 90 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            className="w-full h-full border-4 border-orange-500 rounded-xl flex items-center justify-center"
-          >
-            <Smartphone className="w-12 h-12 text-orange-500" />
-          </motion.div>
-          <motion.div 
-            animate={{ opacity: [0, 1, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="absolute -right-4 top-1/2 -translate-y-1/2"
-          >
-            <RotateCw className="w-8 h-8 text-orange-500" />
-          </motion.div>
-        </div>
-        <h2 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">Tactical Rotation Required</h2>
-        <p className="text-zinc-500 text-sm max-w-xs font-medium leading-relaxed">
-          The Rhodes Island Strategic Interface is optimized for <span className="text-orange-500 font-bold italic">Landscape Orientation</span>. Please rotate your device to continue the operation.
-        </p>
-      </div>
+       {/* Futuristic Grid Background */}
+       <div className="absolute inset-0 z-0 pointer-events-none opacity-20" 
+              style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
 
       {/* Panel Toggles (Universal) */}
-      <div className="fixed left-4 top-1/2 -translate-y-1/2 w-14 z-50 flex flex-col items-center justify-center gap-6 p-2 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-2xl shadow-2xl">
+      <div className="fixed landscape:relative left-4 landscape:left-0 top-1/2 landscape:top-0 -translate-y-1/2 landscape:translate-y-0 w-14 landscape:h-full z-50 flex flex-col items-center justify-center gap-6 p-2 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r rounded-2xl landscape:rounded-none shadow-2xl">
         <button
           onClick={() => {
             setShowMobileTeam(!showMobileTeam);
@@ -4241,7 +4324,7 @@ const App: React.FC = () => {
             initial={{ opacity: 0, x: -100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -100 }}
-            className="fixed left-20 top-10 bottom-10 w-80 z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
+            className="fixed landscape:relative left-20 landscape:left-0 top-10 landscape:top-0 bottom-10 landscape:bottom-0 w-80 landscape:h-full z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r p-6 rounded-2xl landscape:rounded-none shadow-2xl flex flex-col gap-4 overflow-hidden"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -4269,10 +4352,12 @@ const App: React.FC = () => {
               key={p.id}
               className={`p-3 rounded-lg border transition-all relative flex flex-col gap-3 ${p.isBankrupt ? 'border-red-900/40 bg-red-950/10' : i === gameState.currentPlayerIndex ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_20px_rgba(249,115,22,0.15)]' : 'border-zinc-800 bg-zinc-800/20'}`}
             >
-              {p.isBankrupt && (
-                <div className="absolute inset-0 z-10 bg-red-950/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
-                  <div className="border-2 border-red-500 px-3 py-0.5 rotate-[-15deg] shadow-[0_0_15px_rgba(239,68,68,0.3)]">
-                    <span className="text-red-500 font-black italic text-sm tracking-tighter uppercase font-mono">Terminated</span>
+              {(p.isBankrupt || p.status === 'DISCONNECTED' || p.status === 'LEFT' || p.status === 'FORFEITED') && (
+                <div className={`absolute inset-0 z-10 ${p.isBankrupt || p.status === 'FORFEITED' ? 'bg-red-950/40' : 'bg-zinc-950/40'} backdrop-blur-[1px] flex items-center justify-center pointer-events-none`}>
+                  <div className={`border-2 ${p.isBankrupt || p.status === 'FORFEITED' ? 'border-red-500' : 'border-zinc-500'} px-3 py-0.5 rotate-[-15deg] shadow-[0_0_15px_rgba(239,68,68,0.3)]`}>
+                    <span className={`${p.isBankrupt || p.status === 'FORFEITED' || p.status === 'LEFT' ? 'text-red-500' : 'text-zinc-500'} font-black italic text-sm tracking-tighter uppercase font-mono`}>
+                      {(p.status === 'FORFEITED' || p.status === 'LEFT' || p.isBankrupt) ? 'Terminated' : 'Signal Lost'}
+                    </span>
                   </div>
                 </div>
               )}
@@ -4406,7 +4491,7 @@ const App: React.FC = () => {
             initial={{ opacity: 0, x: -100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -100 }}
-            className="fixed left-20 top-10 bottom-10 w-80 z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
+            className="fixed landscape:relative left-20 landscape:left-0 top-10 landscape:top-0 bottom-10 landscape:bottom-0 w-80 landscape:h-full z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r p-6 rounded-2xl landscape:rounded-none shadow-2xl flex flex-col gap-4 overflow-hidden"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
@@ -5849,7 +5934,7 @@ const App: React.FC = () => {
               initial={{ opacity: 0, scale: 0.8, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: 20 }}
-              className="w-full max-w-2xl bg-zinc-900 border-2 border-orange-500/50 p-8 rounded-3xl shadow-[0_0_50px_rgba(255,140,0,0.2)] overflow-hidden relative"
+              className="w-full max-w-2xl bg-zinc-900 border-2 border-orange-500/50 p-8 rounded-3xl shadow-[0_0_50px_rgba(255,140,0,0.2)] relative"
             >
               {/* Background Accents */}
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent" />
@@ -5857,17 +5942,17 @@ const App: React.FC = () => {
               <div className="absolute -right-20 -top-20 w-64 h-64 bg-orange-500/5 rounded-full blur-3xl" />
               <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-orange-500/5 rounded-full blur-3xl" />
 
-              <div className="text-center mb-10">
+              <div className="text-center mb-6 sm:mb-10">
                 <motion.div
                   initial={{ rotate: -10, scale: 0 }}
                   animate={{ rotate: 0, scale: 1 }}
                   transition={{ type: "spring", damping: 10, stiffness: 100, delay: 0.2 }}
-                  className="inline-block mb-4"
+                  className="inline-block mb-2 sm:mb-4"
                 >
-                  <Trophy className="w-20 h-20 text-orange-500 mx-auto drop-shadow-[0_0_15px_rgba(255,140,0,0.5)]" />
+                  <Trophy className="w-12 h-12 sm:w-20 sm:h-20 text-orange-500 mx-auto drop-shadow-[0_0_15px_rgba(255,140,0,0.5)]" />
                 </motion.div>
-                <h2 className="text-5xl font-black italic uppercase tracking-tighter text-white mb-2">Mission Complete</h2>
-                <p className="text-zinc-500 font-black uppercase tracking-widest text-xs">Final Operation Report</p>
+                <h2 className="text-2xl sm:text-5xl font-black italic uppercase tracking-tighter text-white mb-1 sm:mb-2">Mission Complete</h2>
+                <p className="text-zinc-500 font-black uppercase tracking-widest text-[8px] sm:text-xs">Final Operation Report</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
@@ -5907,22 +5992,40 @@ const App: React.FC = () => {
                   )}
                 </div>
 
-                {/* Debrief Report / Rankings Section */}
+                {/* Debrief Report / Rankings Section - High Capacity Scrollable */}
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Tactical Debrief</div>
                     <div className="text-[8px] font-mono text-zinc-600 uppercase">Sector Performance Data</div>
                   </div>
                   
-                  {/* Using rankings state if available, otherwise fallback to assets sort */}
-                  {(gameState.rankings || [...gameState.players].sort((a,b) => calculateTotalAssets(b) - calculateTotalAssets(a))).map((entry, idx) => {
+                  <div className="max-h-[35vh] sm:max-h-[550px] overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3">
+                    {([...(gameState.rankings || []), ...gameState.players.filter(p => !gameState.rankings?.some(r => r.id === p.id))].sort((a,b) => {
+                      const rankA = (a as any).rank || 99;
+                      const rankB = (b as any).rank || 99;
+                      if (rankA !== rankB) return rankA - rankB;
+                      return calculateTotalAssets(b) - calculateTotalAssets(a);
+                    })).map((entry, idx) => {
                     // entry could be a Player object (fallback) or a Ranking object
                     const playerId = typeof entry.id === 'string' ? entry.id : (entry as any).id;
-                    const player = gameState.players.find(p => p.id === playerId);
+                    const livePlayer = gameState.players.find(p => p.id === playerId);
+                    
+                    // Fallback to ranking data if live player is missing (e.g. they left after mission end)
+                    const operatorObj = livePlayer ? livePlayer.operator : 
+                      (entry as any).operatorName ? (OPERATORS.find(op => op.name === (entry as any).operatorName) || OPERATORS[0]) : 
+                      OPERATORS[0];
+                    
+                    const player = livePlayer || {
+                      id: playerId,
+                      name: entry.name,
+                      avatar: AVATARS.find(a => a.id === (entry as any).avatarId) || AVATARS[0],
+                      operator: operatorObj,
+                      status: (entry as any).status || 'LEFT',
+                      isBankrupt: true
+                    };
+
                     const rank = entry.rank || (idx + 1);
                     const isWinner = rank === 1;
-                    
-                    if (!player) return null;
 
                     return (
                       <motion.div 
@@ -5954,25 +6057,37 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-base font-black uppercase italic tracking-tighter ${isWinner ? 'text-white' : 'text-zinc-300'}`}>
-                              {player.name}
-                            </span>
-                            {player.isBankrupt && (
-                              <span className="text-[7px] font-black bg-red-500/20 text-red-500 px-1.5 py-0.5 rounded-sm uppercase tracking-tighter border border-red-500/30">Withdrawn</span>
-                            )}
+                        <div className="flex items-center gap-6 pr-4">
+                          {/* Detailed Stats Grid */}
+                          <div className="flex gap-4">
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-center gap-1">
+                                <Coins className="w-2.5 h-2.5 text-amber-500" />
+                                <span className="text-[11px] font-black font-mono text-white">
+                                  {(entry.stats?.orundum ?? (livePlayer?.orundum ?? 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="text-[7px] font-black text-zinc-600 uppercase tracking-widest">Orundum</div>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-center gap-1">
+                                <Building2 className="w-2.5 h-2.5 text-blue-400" />
+                                <span className="text-[11px] font-black font-mono text-white">
+                                  {entry.stats?.assets ?? (livePlayer?.properties?.length ?? 0)}
+                                </span>
+                              </div>
+                              <div className="text-[7px] font-black text-zinc-600 uppercase tracking-widest">Sectors</div>
+                            </div>
                           </div>
-                          <div className={`text-[9px] font-bold uppercase tracking-widest ${isWinner ? 'text-orange-500/80' : 'text-zinc-600'}`}>
-                            {player.operator.title}
-                          </div>
-                        </div>
 
-                        <div className="text-right">
-                          <div className={`text-sm font-black font-mono ${isWinner ? 'text-orange-500' : 'text-zinc-400'}`}>
-                            {entry.stats ? entry.stats.orundum : calculateTotalAssets(player)}
+                          <div className="w-px h-8 bg-zinc-800" />
+
+                          <div className="text-right min-w-[70px]">
+                            <div className={`text-sm font-black font-mono ${isWinner ? 'text-orange-500' : 'text-zinc-400'}`}>
+                              O{(entry.stats?.orundum ?? calculateTotalAssets(player)).toLocaleString()}
+                            </div>
+                            <div className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Net Worth</div>
                           </div>
-                          <div className="text-[8px] font-black text-zinc-600 uppercase tracking-widest">Final Worth</div>
                         </div>
                         
                         {/* Decorative scanline overlay */}
@@ -5980,29 +6095,89 @@ const App: React.FC = () => {
                       </motion.div>
                     );
                   })}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
                 <button 
                   onClick={resetGame}
-                  className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 text-black font-black uppercase italic tracking-widest rounded-xl transition-all shadow-[0_4px_0_rgb(194,107,0)] active:translate-y-1 active:shadow-none flex items-center justify-center gap-3"
+                  className="flex-1 py-3 sm:py-4 bg-orange-500 hover:bg-orange-600 text-black font-black uppercase italic tracking-widest rounded-xl transition-all shadow-[0_4px_0_rgb(194,107,0)] active:translate-y-1 active:shadow-none flex items-center justify-center gap-3 text-sm sm:text-base whitespace-nowrap"
                 >
-                  <Play className="w-5 h-5 fill-current" /> Return to Base
+                  <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" /> Return to Base
                 </button>
                 <button 
                   onClick={() => setShowProfile(true)}
-                  className="px-8 py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3"
+                  className="px-6 sm:px-8 py-3 sm:py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase italic tracking-widest rounded-xl transition-all flex items-center justify-center gap-3 text-sm sm:text-base whitespace-nowrap"
                 >
-                  <User className="w-5 h-5" /> View Profile
+                  <User className="w-4 h-4 sm:w-5 sm:h-5" /> View Profile
                 </button>
               </div>
             </motion.div>
           </div>
         )}
         {isQueuing && <SearchingOverlay />}
-        {!isConnected && socket && <SignalLostOverlay />}
+        {!isConnected && socket && !sessionReplaced && <SignalLostOverlay />}
+        {sessionReplaced && (
+          <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-full max-w-sm space-y-8">
+              <div className="relative">
+                <div className="w-24 h-24 border-2 border-red-500 rounded-full mx-auto flex items-center justify-center animate-pulse">
+                  <ShieldAlert className="w-12 h-12 text-red-500" />
+                </div>
+                <div className="absolute inset-0 bg-red-500/20 blur-[40px] rounded-full" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white">Access <span className="text-red-500">Displaced</span></h2>
+                <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Doctor ID detected elsewhere</div>
+              </div>
+              <p className="text-zinc-500 text-xs italic">
+                "We have detected a parallel session for this Doctor ID. Rhodes Island security protocols have restricted this tactical link to prevent data corruption."
+              </p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="w-full py-4 bg-zinc-900 border border-zinc-700 text-white font-black uppercase italic tracking-widest rounded-xl hover:bg-zinc-800 transition-all flex items-center justify-center gap-3 group"
+              >
+                <RefreshCw className="w-5 h-5 group-hover:rotate-180 transition-transform duration-700" />
+                Re-initialize Link
+              </button>
+            </div>
+          </div>
+        )}
       </AnimatePresence>
+
+      {/* Orientation Lock - Enforce Landscape on Mobile */}
+      <div className="fixed inset-0 z-[5000] bg-[#0a0a0a] flex flex-col items-center justify-center p-8 text-center sm:hidden portrait:flex hidden">
+        <div className="w-full max-w-xs space-y-6">
+          <div className="relative mx-auto w-24 h-24">
+            <motion.div 
+              animate={{ rotate: 90 }} 
+              transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+              className="w-full h-full border-4 border-orange-500 rounded-2xl flex items-center justify-center"
+            >
+              <Smartphone className="w-12 h-12 text-orange-500" />
+            </motion.div>
+            <div className="absolute inset-0 bg-orange-500/20 blur-xl rounded-full" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Tactical <span className="text-orange-500">Lock</span></h2>
+            <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Protocol: Landscape Required</div>
+          </div>
+          <p className="text-zinc-500 text-xs italic leading-relaxed">
+            "Doctor, the PRTS interface requires horizontal alignment for full tactical clarity. Please rotate your terminal to continue the operation."
+          </p>
+          <div className="pt-4">
+            <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ x: "-100%" }} animate={{ x: "100%" }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                className="w-1/2 h-full bg-orange-500"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Mission Debrief Modal (Post-Forfeit Choices) */}
       <AnimatePresence>
         {showPostBankruptcyChoice && (

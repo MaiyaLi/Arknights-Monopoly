@@ -6,17 +6,20 @@
 [![Socket.io](https://img.shields.io/badge/Socket.io-4.8-black.svg)](https://socket.io/)
 [![Firebase](https://img.shields.io/badge/Firebase-Admin-FFCA28.svg)](https://firebase.google.com/)
 
-Welcome to **Arknights Monopoly**, a high-stakes tactical board game where the lore of Terra meets the cutthroat strategy of Monopoly. Built for Doctors of Rhodes Island, this project delivers a seamless multiplayer experience with persistent progression and unique character-driven mechanics.
+Welcome to **Arknights Monopoly**, a high-stakes tactical board game where the lore of Terra meets the cutthroat strategy of Monopoly. Built for Doctors of Rhodes Island, this project delivers a high-fidelity multiplayer experience with robust session persistence and unique operative-driven mechanics.
 
 ## 🎭 The Theme: Operation Terra
 
-Step into the shoes of a **Rhodes Island Strategic Commander**. Instead of simple properties, you are securing vital tactical sectors across Terra.
+Step into the shoes of a **Rhodes Island Strategic Commander**. You are not just buying properties; you are securing vital tactical sectors and deploying infrastructure across Terra.
 
-### Key Visual Features
-- **Animated Operator Sprites**: Every player token is a high-quality 4-frame animated sprite, bringing the operators to life on the board.
-- **Adaptive Tactical Overlay**: A responsive, self-scaling game board that fits any screen size without losing tactical clarity.
-- **Dynamic Sidebars**: Floating "Intelligence Reports" (chat/logs) and "Team Management" panels that stay out of the way until you need them.
-- **Atmospheric UI**: A sleek, dark-themed interface inspired by the Arknights "PRTS" system.
+### Key Visual & Tactical Features
+- **PRTS Identity Verification**: Secure your terminal with a Doctor Codename and Identification Email.
+- **Animated Operator Sprites**: High-quality 4-frame animated sprites for every operative.
+- **Tactical HUD**: A sleek, dark-themed interface inspired by the Arknights PRTS system, featuring a self-scaling board.
+- **High-Stability Multiplayer**: 
+  - **Session Displacement**: One Doctor, one terminal. Logging in from a new device safely migrates your tactical link.
+  - **Final Guard Retention**: Withdrawing or losing signal doesn't erase your history. Doctors remain visible in the "Team Info" and final "Tactical Debrief" for all participants.
+- **Dynamic Sidebars**: Floating "Intelligence Reports" (chat/logs) and "Team Management" panels.
 
 ---
 
@@ -32,19 +35,19 @@ All transactions are handled in **Orundum**.
 Choose your squad leader wisely. Each Operator grants a unique tactical advantage:
 - **Amiya**: *Spirit Absorption* - 10% bonus to Orundum when passing GO.
 - **Ch'en**: *Chi-Shadowless* - 15% chance to roll an extra die for tactical repositioning.
-- **Hoshiguma**: *Thorns* - Defensive aura that increases rent by 10% for opponents.
+- **Hoshiguma**: *Thorns* - Defensive aura that forces opponents to pay 10% extra rent.
 - **Lappland**: *Sundial* - Immune to the first "Sanity Depleted" (Jail) event.
-- **Texas**: *Tactical Delivery* - Start the game with O1,000 extra starting capital.
-- **Mostima**: *Time Lock* - Reduces opponent turn timers by 5 seconds, forcing them to make rushed decisions.
-- **Pramanix**: *Natural Selection* - Tax payments are reduced by 50%.
+- **Texas**: *Tactical Delivery* - Start the mission with O1,000 extra starting capital.
+- **Mostima**: *Time Lock* - Reduces opponent turn timers by 5 seconds.
+- **Pramanix**: *Natural Selection* - Vital tax payments are reduced by 50%.
 - **SilverAsh**: *Eagle Eyes* - 10% discount on all property/sector acquisitions.
 - **Kal'tsit**: *Mon3tr's Protection* - 50% chance to negate rent once every 5 turns.
 - **Exusiai**: *Apple Pie!* - Gain O200 bonus every time you roll doubles.
 
 ### 🏢 Infrastructure Development
-Replace basic houses with Rhodes Island infrastructure:
-1. **Dorms (Level 1-4)**: Increases the tactical value and "rent" of a sector.
-2. **Command Center**: The ultimate upgrade, maximizing the sector's utility.
+Replace basic outposts with Rhodes Island infrastructure:
+1. **Dormitories (Level 1-4)**: Increases the tactical value and "rent" of a sector.
+2. **Command Center**: The ultimate upgrade, maximizing a sector's utility and defensive value.
 
 ---
 
@@ -53,7 +56,7 @@ Replace basic houses with Rhodes Island infrastructure:
 ### Prerequisites
 - **Node.js** (v18 or higher)
 - **NPM** or **Yarn**
-- **Firebase Project** (Optional for local, required for persistent data)
+- **Firebase Project** (Firestore enabled for persistent data)
 
 ### Installation
 1.  **Clone the Mission Files**:
@@ -68,7 +71,6 @@ Replace basic houses with Rhodes Island infrastructure:
 3.  **Environment Configuration**:
     Create a `.env` file based on `.env.example`:
     ```env
-    GEMINI_API_KEY="your_api_key"
     APP_URL="http://localhost:3000"
     PORT=3000
     ```
@@ -80,7 +82,7 @@ Replace basic houses with Rhodes Island infrastructure:
   ```bash
   npm run dev
   ```
-- **Production Build**:
+- **Production**:
   ```bash
   npm run build
   npm start
@@ -91,32 +93,11 @@ Replace basic houses with Rhodes Island infrastructure:
 ## 🛠️ Tech Stack & Architecture
 
 - **Frontend**: `React 19` + `TypeScript` + `Vite`
-- **Animation**: `Framer Motion` (Motion) for smooth UI transitions and sprite work.
-- **Styling**: `TailwindCSS` with the `@tailwindcss/vite` plugin.
-- **Multiplayer**: `Socket.io` for real-time state synchronization, matchmaking, and chat.
-- **Backend**: `Node.js` + `Express` + `TSX` (Runtime).
-- **Database**: `Firebase Admin SDK` (Firestore) for persistent user levels, wins, and matches.
-
-### Project Structure
-```text
-├── src/                # Frontend React application
-│   ├── components/     # UI Components (Board, Sidebar, Overlays)
-│   ├── assets/         # Operator sprites and thematic images
-│   └── App.tsx         # Main Game Logic and UI Assembly
-├── server.ts           # Socket.io & Express Server (Multiplayer Logic)
-├── firebase.json       # Hosting & Firebase configuration
-├── Dockerfile          # Containerization for Render.com/Cloud Run
-└── public/             # Static assets and icons
-```
-
----
-
-## 🌐 Deployment
-
-The system is designed for **High-Availability Split Deployment**:
-- **Frontend**: Deployed to **Firebase Hosting**.
-- **Backend**: Deployed to a stateful hosting service like **Render.com** or **Railway** (to maintain Socket.io connections).
-- **Database**: Hosted on **Google Cloud Firestore**.
+- **Animation**: `Framer Motion` for smooth UI transitions and sprite work.
+- **Styling**: `TailwindCSS` with Arknights-inspired custom palettes.
+- **Multiplayer**: `Socket.io` for real-time state synchronization and matchmaking.
+- **Backend**: `Node.js` + `Express` + `TSX`.
+- **Database**: `Cloud Firestore` for persistent user levels, wins, and identities.
 
 ---
 
