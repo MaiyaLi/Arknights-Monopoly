@@ -867,7 +867,6 @@ async function startServer() {
         }
       }
     });
-    });
 
     socket.on('disconnect', async () => {
       console.log('User disconnected:', socket.id);
