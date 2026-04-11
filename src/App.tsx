@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// [TACTICAL OS] V8.6-STABLE DISTRIBUTED BUILD
-// ARKNIGHTS MONOPOLY REPRODUCTION SECTOR
+// ARKNIGHTS MONOPOLY
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { 
@@ -126,8 +125,7 @@ const LoadingScreen = ({ progress }: { progress: number }) => {
     <div className="w-full max-w-md">
       <div className="flex justify-between items-end mb-2">
         <div className="flex flex-col">
-          <span className="text-[10px] font-black text-orange-500 uppercase tracking-[0.3em]">Rhodes Island Interface</span>
-          <span className="text-2xl font-black italic uppercase tracking-tighter text-white">Operational Intel Sync</span>
+          <span className="text-2xl font-black italic uppercase tracking-tighter text-white">Arknights Monopoly</span>
         </div>
         <span className="text-xl font-mono text-orange-500 font-bold">{Math.round(clampedProgress)}%</span>
       </div>
@@ -338,8 +336,8 @@ const App: React.FC = () => {
         {/* Tactical Info - Right/Bottom */}
         <div className="flex-1 flex flex-col gap-4 sm:gap-6 w-full min-w-0">
           <div className="text-center sm:text-left space-y-1">
-            <h2 className="text-xl sm:text-2xl md:text-4xl font-black italic uppercase tracking-tighter text-white leading-none">Scanning <span className="text-orange-500">Signal</span></h2>
-            <p className="text-[8px] sm:text-[10px] text-zinc-500 font-mono tracking-[0.2em] md:tracking-[0.4em] uppercase animate-pulse">Search established: Tracking other Doctors</p>
+            <h2 className="text-xl sm:text-2xl md:text-4xl font-black italic uppercase tracking-tighter text-white leading-none">Arknights <span className="text-orange-500">Monopoly</span></h2>
+            <p className="text-[8px] sm:text-[10px] text-zinc-500 font-mono tracking-[0.2em] md:tracking-[0.4em] uppercase animate-pulse">Scanning Matchmaking Frequency...</p>
           </div>
 
           <div className="w-full bg-zinc-900/50 border border-zinc-800 p-4 sm:p-5 rounded-xl space-y-3 md:space-y-4 shadow-2xl relative overflow-hidden group">
