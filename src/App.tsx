@@ -263,6 +263,15 @@ const PlayerToken: React.FC<{ player: Player; animationSpeed: number }> = ({ pla
   );
 };
 
+const getSector = () => {
+    const host = window.location.hostname;
+    if (host.includes('vercel.app')) return 'VERCEL';
+    if (host.includes('web.app') || host.includes('firebaseapp.com')) return 'FIREBASE';
+    if (host.includes('onrender.com')) return 'RENDER';
+    return 'LOCAL';
+  };
+  const SECTOR = getSector();
+
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>({
     players: [],
@@ -603,7 +612,7 @@ const App: React.FC = () => {
         xpRequired = Math.floor(1000 * Math.pow(1.2, level - 1));
       }
       
-      return {
+      const finalProfile = {
         ...prev,
         exp: newExp,
         level: level,
@@ -611,6 +620,27 @@ const App: React.FC = () => {
         wins: newWins,
         losses: newLosses
       };
+
+      // TACTICAL DOUBLE-WRITE: Sync identity across sectors (Best Effort)
+      if (SECTOR === 'VERCEL' && supabase && prev.email) {
+        supabase.from('users').upsert({
+          email: prev.email,
+          name: prev.name,
+          level: finalProfile.level,
+          exp: finalProfile.exp,
+          wins: finalProfile.wins,
+          losses: finalProfile.losses,
+          matches: finalProfile.matches,
+          avatar_id: prev.avatarId
+        }).then(({ error }) => { if (error) console.error("[Sector Sync] Supabase update failed:", error); });
+      }
+
+      if (SECTOR === 'FIREBASE' && db && prev.email) {
+        setDoc(doc(db, 'users', prev.email), finalProfile, { merge: true })
+          .catch(e => console.error("[Sector Sync] Firestore update failed:", e));
+      }
+
+      return finalProfile;
     });
   }, []);
 
@@ -1544,7 +1574,7 @@ const App: React.FC = () => {
       // 1. Classic socket queue (for legacy support/metrics)
       socket.emit('queue-online');
 
-      // 2. HYBRID Matchmaking Queue
+      // 2. SECTOR-NATIVE Matchmaking Queue
       const queueData = {
         socket_id: socket.id,
         name: profile.name,
@@ -1553,8 +1583,26 @@ const App: React.FC = () => {
         joined_at: new Date().toISOString()
       };
 
-      if (supabase) {
-        supabase.from('matchmaking_queue').upsert(queueData).then(({ error }) => { if (error) console.error("Supabase Queue Error:", error); });
+      // SECTOR BETA: Prioritize Supabase
+      if (SECTOR === 'VERCEL' && supabase) {
+        supabase.from('matchmaking_queue').upsert(queueData).then(({ error }) => { 
+          if (error) console.error("Supabase Queue Error:", error); 
+          else console.log("[Sector Beta] Matchmaking established via Supabase Link.");
+        });
+      }
+
+      // SECTOR ALPHA: Prioritize Firestore
+      if (SECTOR === 'FIREBASE' && db) {
+        setDoc(doc(db, 'matchmaking_queue', socket.id), {
+          ...queueData,
+          joinedAt: serverTimestamp()
+        }).then(() => console.log("[Sector Alpha] Matchmaking established via Firebase Link."))
+          .catch(e => console.error("Firestore Queue Error:", e));
+      }
+
+      // SECTOR GAMMA / LOCAL: Rely on Socket Native
+      if (SECTOR === 'RENDER' || SECTOR === 'LOCAL') {
+        console.log("[Sector Gamma] Relying on native socket protocol for sector stabilization.");
       }
 
       // Try Firebase (Legacy) - with resilience
