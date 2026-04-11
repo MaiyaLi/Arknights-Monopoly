@@ -112,7 +112,6 @@ export interface GameState {
   turnTimer: number; // Seconds remaining
   auctionTimer: number; // Seconds remaining for current bid
   turnTimeLimit: number;
-  chatMessages: ChatMessage[];
   tiles: Tile[];
   turnCount: number;
   rankings?: {
@@ -130,6 +129,7 @@ export interface ChatMessage {
   id: string;
   senderId: string;
   senderName: string;
+  senderAvatar: string;
   text: string;
   timestamp: number;
 }

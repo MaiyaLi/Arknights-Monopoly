@@ -4,7 +4,9 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { createClient } from '@supabase/supabase-js';
 import { createServer as createViteServer } from 'vite';
+import dotenv from 'dotenv';
 import admin from 'firebase-admin';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +71,11 @@ async function startServer() {
   const db = admin.apps.length > 0 ? admin.firestore() : null;
   const usersCollection = db ? db.collection('users') : null;
 
+  // Supabase Initialization
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://nvzwwjutrvygriiqmtqa.supabase.co';
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const supabase = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+
   // Store user data by email for persistent identification
   interface UserData {
     name: string;
@@ -105,14 +112,194 @@ async function startServer() {
     }
   }
 
-  // Save user to Firestore
+  await loadUsers();
+
+  interface Room {
+    players: any[];
+    expectedPlayerCount?: number;
+    gameState: any;
+    selectedOperators: string[];
+    turnTimer?: NodeJS.Timeout;
+    remainingTime: number;
+    chatMessages: any[];
+    status: 'LOBBY' | 'IN_PROGRESS' | 'active' | 'selecting' | 'WAITING';
+    hostId: string;
+    hostName?: string;
+    hostEmail?: string;
+    missionTimer?: NodeJS.Timeout;
+    missionCountdown?: number;
+    startTime?: number; // Deployment start time
+    totalTurns?: number; // Turn count for anti-abuse
+  }
+
+  const socketToEmail = new Map<string, string>();
+  const rooms = new Map<string, Room>();
+
+  const socketToRoom = new Map<string, string>();
+  
+  /**
+   * Finalizes mission statistics for all participants.
+   * Includes anti-abuse checks for time and turn count.
+   */
+  async function finalizeMissionStats(roomId: string) {
+    const room = rooms.get(roomId);
+    if (!room || !room.gameState || !room.gameState.winner) return;
+
+    console.log(`[Statistical Debrief] Processing sector ${roomId}...`);
+    
+    // 1. Calculate Mission Duration & Turn Count
+    const now = Date.now();
+    const startTime = room.startTime || now;
+    const durationMinutes = Math.floor((now - startTime) / 60000);
+    const turnCount = room.totalTurns || 0;
+    const winnerId = room.gameState.winner;
+
+    // 2. Anti-Abuse Filter
+    const isAbuse = durationMinutes < 3 || turnCount < 4;
+    if (isAbuse) {
+      console.log(`[Anti-Abuse] Sector ${roomId} closed early (${durationMinutes}m, ${turnCount}t). Stats stabilization aborted.`);
+      return;
+    }
+
+    // 3. Update Participant Records
+    for (const player of room.players) {
+      if (!player.email) continue;
+
+      let userData = users.get(player.email);
+      
+      // If not in memory, try to load from cloud first
+      if (!userData && usersCollection) {
+        try {
+          const doc = await usersCollection.doc(player.email).get();
+          if (doc.exists) userData = doc.data() as UserData;
+        } catch (e) { console.error(e); }
+      }
+
+      if (userData) {
+        const isWinner = player.id === winnerId;
+        
+        // Update basic stats
+        userData.matches = (userData.matches || 0) + 1;
+        if (isWinner) {
+          userData.wins = (userData.wins || 0) + 1;
+        } else {
+          userData.losses = (userData.losses || 0) + 1;
+        }
+
+        // Calculate EXP
+        const baseExp = isWinner ? 100 : 50;
+        const timeBonus = Math.min(400, durationMinutes * 5); // Cap bonus at 400
+        const totalExpGained = baseExp + timeBonus;
+
+        userData.exp = (userData.exp || 0) + totalExpGained;
+
+        // Level Up Logic (1000 per level)
+        while (userData.exp >= 1000) {
+          userData.exp -= 1000;
+          userData.level = (userData.level || 1) + 1;
+          console.log(`[Authorization Up] Doctor ${player.email} reached Level ${userData.level}!`);
+        }
+
+        // Save back to memory and both clouds
+        users.set(player.email, userData);
+        await saveUser(player.email, userData);
+        console.log(`[Statistical Debrief] Record stabilized for ${player.name}: +${totalExpGained} EXP.`);
+      }
+    }
+  }
+
+  const queue: string[] = [];
+  let matchmakingTimer: NodeJS.Timeout | null = null;
+  let matchmakingCountdown = 10;
+
+  const TURN_TIME_LIMIT = 45;
+  const MISSION_START_COUNTDOWN = 5;
+  
+  // --- Firestore Helpers ---
+  async function saveLobbyToCloud(roomId: string) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    
+    // 1. Firebase Sync (Legacy)
+    if (db) {
+      try {
+        await db.collection('lobbies').doc(roomId).set({
+          roomId,
+          players: room.players,
+          status: room.status,
+          selectedOperators: room.selectedOperators,
+          hostId: room.hostId,
+          hostName: room.hostName,
+          hostEmail: room.hostEmail,
+          lastActivity: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      } catch (e) {
+        console.error(`[Firebase Sync] Failed to save lobby ${roomId}:`, e);
+      }
+    }
+
+    // 2. Supabase Sync (High Stability)
+    if (supabase) {
+      try {
+        await supabase.from('lobbies').upsert({
+          room_id: roomId,
+          status: room.status,
+          host_id: room.hostId,
+          host_name: room.hostName,
+          host_email: room.hostEmail,
+          players: room.players,
+          selected_operators: room.selectedOperators,
+          last_activity: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error(`[Supabase Sync] Failed to save lobby ${roomId}:`, e);
+      }
+    }
+  }
+
+  async function deleteLobbyFromCloud(roomId: string) {
+    if (db) {
+      try {
+        await db.collection('lobbies').doc(roomId).delete();
+      } catch (e) {
+        console.error(`[Firebase Delete] Failed for ${roomId}:`, e);
+      }
+    }
+    if (supabase) {
+      try {
+        await supabase.from('lobbies').delete().eq('room_id', roomId);
+      } catch (e) {
+        console.error(`[Supabase Delete] Failed for ${roomId}:`, e);
+      }
+    }
+  }
+
   async function saveUser(email: string, userData: UserData) {
+    // 1. Firebase Sync
     if (usersCollection) {
       try {
-        const { socketId, ...toSave } = userData;
-        await usersCollection.doc(email).set(toSave);
+        await usersCollection.doc(email).set(userData);
       } catch (e) {
-        console.error(`Failed to save user ${email} to cloud:`, e);
+        console.error(`[Firebase Sync] Failed to save user ${email}:`, e);
+      }
+    }
+
+    // 2. Supabase Sync
+    if (supabase) {
+      try {
+        await supabase.from('profiles').upsert({
+          email: email,
+          name: userData.name,
+          avatar_id: userData.avatarId,
+          level: userData.level,
+          exp: userData.exp,
+          wins: userData.wins,
+          losses: userData.losses,
+          matches: userData.matches,
+          updated_at: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error(`[Supabase Sync] Failed to save profile ${email}:`, e);
       }
     }
 
@@ -125,66 +312,6 @@ async function startServer() {
       (currentDB as any)[email] = toSave;
       fs.writeFileSync(DB_PATH, JSON.stringify(currentDB, null, 2));
     } catch (e) { console.error(e); }
-  }
-
-  await loadUsers();
-
-  interface Room {
-    players: any[];
-    expectedPlayerCount?: number;
-    gameState: any;
-    selectedOperators: string[];
-    turnTimer?: NodeJS.Timeout;
-    remainingTime: number;
-    chatMessages: any[];
-    status: 'LOBBY' | 'IN_PROGRESS';
-    hostId: string;
-    hostName?: string;
-    hostEmail?: string;
-    missionTimer?: NodeJS.Timeout;
-    missionCountdown?: number;
-  }
-
-  const socketToEmail = new Map<string, string>();
-  const rooms = new Map<string, Room>();
-
-  const socketToRoom = new Map<string, string>();
-  const queue: string[] = [];
-  let matchmakingTimer: NodeJS.Timeout | null = null;
-  let matchmakingCountdown = 10;
-
-  const TURN_TIME_LIMIT = 45;
-  const MISSION_START_COUNTDOWN = 5;
-  
-  // --- Firestore Helpers ---
-  async function saveLobbyToFirestore(roomId: string) {
-    const room = rooms.get(roomId);
-    if (!room || !db) return;
-    
-    try {
-      await db.collection('lobbies').doc(roomId).set({
-        roomId,
-        players: room.players,
-        status: room.status,
-        selectedOperators: room.selectedOperators,
-        hostId: room.hostId,
-        hostName: room.hostName,
-        hostEmail: room.hostEmail,
-        lastActivity: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-    } catch (e) {
-      console.error(`[Firestore Sync] Failed to save lobby ${roomId}:`, e);
-    }
-  }
-
-  async function deleteLobbyFromFirestore(roomId: string) {
-    if (!db) return;
-    try {
-      await db.collection('lobbies').doc(roomId).delete();
-      console.log(`[Firestore Sync] Deleted lobby ${roomId}.`);
-    } catch (e) {
-      console.error(`[Firestore Sync] Failed to delete lobby ${roomId}:`, e);
-    }
   }
 
   // --- Helper Functions ---
@@ -327,7 +454,7 @@ async function startServer() {
         hostEmail // Store host email for re-connection
       });
 
-      await saveLobbyToFirestore(roomId);
+      await saveLobbyToCloud(roomId);
 
       socket.emit('joined-room', { 
         roomId, 
@@ -347,21 +474,44 @@ async function startServer() {
 
       let userData = users.get(email);
       
-      // If not in memory, try to fetch from Firestore
+      // 1. Try Firebase Recovery
       if (!userData && usersCollection) {
         try {
           const cloudDoc = await usersCollection.doc(email).get();
           if (cloudDoc.exists) {
             userData = cloudDoc.data() as UserData;
-            console.log(`[Sector Recovery] Recovered Doctor ${email} from cloud.`);
-            users.set(email, { ...userData, socketId: socket.id });
+            console.log(`[Sector Recovery] Recovered Doctor ${email} from Firebase.`);
           }
         } catch (e) {
-          console.error(`[Sector Recovery] Failed to scan cloud for ${email}:`, e);
+          console.error(`[Firebase Recovery] Failed for ${email}:`, e);
+        }
+      }
+
+      // 2. Try Supabase Recovery
+      if (!userData && supabase) {
+        try {
+          const { data, error } = await supabase.from('profiles').select('*').eq('email', email).single();
+          if (data && !error) {
+            userData = {
+              name: data.name,
+              avatarId: data.avatar_id,
+              level: data.level,
+              exp: data.exp,
+              wins: data.wins,
+              losses: data.losses,
+              matches: data.matches,
+              socketId: socket.id
+            };
+            console.log(`[Sector Recovery] Recovered Doctor ${email} from Supabase.`);
+          }
+        } catch (e) {
+          console.error(`[Supabase Recovery] Failed for ${email}:`, e);
         }
       }
 
       if (userData) {
+        users.set(email, { ...userData, socketId: socket.id });
+        
         if (userData.socketId && userData.socketId !== socket.id) {
           const oldSocket = io.sockets.sockets.get(userData.socketId);
           if (oldSocket) {
@@ -392,30 +542,52 @@ async function startServer() {
       const roomId = (rawRoomId || '').toString().trim().toUpperCase();
       let room = rooms.get(roomId);
       
-      // If room is missing from memory, attempt to re-hydrate from Firestore
-      if (!room && db) {
-        console.log(`[Sector Recovery] Room ${roomId} missing from memory, scanning Firestore...`);
-        try {
-          const doc = await db.collection('lobbies').doc(roomId).get();
-          if (doc.exists) {
-            const data = doc.data() as any;
-            room = {
-              players: data.players || [],
-              gameState: null,
-              selectedOperators: data.selectedOperators || [],
-              remainingTime: TURN_TIME_LIMIT,
-              chatMessages: [],
-              status: data.status || 'LOBBY',
-              hostId: data.hostId,
-              hostName: data.hostName,
-              hostEmail: data.hostEmail
-            };
-            rooms.set(roomId, room);
-            console.log(`[Sector Recovery] Room ${roomId} stabilized from secure database.`);
-          }
-        } catch (e) {
-          console.error(`[Sector Recovery] Failed to scan sector ${roomId}:`, e);
+      // If room is missing from memory, attempt to re-hydrate from cloud
+      if (!room) {
+        // 1. Try Firebase
+        if (db) {
+          try {
+            const doc = await db.collection('lobbies').doc(roomId).get();
+            if (doc.exists) {
+              const data = doc.data() as any;
+              room = {
+                players: data.players || [],
+                gameState: null,
+                selectedOperators: data.selectedOperators || [],
+                remainingTime: TURN_TIME_LIMIT,
+                chatMessages: [],
+                status: data.status || 'LOBBY',
+                hostId: data.hostId,
+                hostName: data.hostName,
+                hostEmail: data.hostEmail
+              };
+              console.log(`[Sector Recovery] Room ${roomId} stabilized from Firebase.`);
+            }
+          } catch (e) { console.error(e); }
         }
+
+        // 2. Try Supabase
+        if (!room && supabase) {
+          try {
+            const { data, error } = await supabase.from('lobbies').select('*').eq('room_id', roomId).single();
+            if (data && !error) {
+               room = {
+                 players: data.players || [],
+                 gameState: null,
+                 selectedOperators: data.selected_operators || [],
+                 remainingTime: TURN_TIME_LIMIT,
+                 chatMessages: [],
+                 status: (data.status as any) || 'LOBBY',
+                 hostId: data.host_id,
+                 hostName: data.host_name,
+                 hostEmail: data.host_email
+               };
+               console.log(`[Sector Recovery] Room ${roomId} stabilized from Supabase.`);
+            }
+          } catch (e) { console.error(e); }
+        }
+
+        if (room) rooms.set(roomId, room);
       }
 
       if (room) {
@@ -482,7 +654,7 @@ async function startServer() {
         }
 
         // Update Firestore with the new player list
-        await saveLobbyToFirestore(roomId);
+        await saveLobbyToCloud(roomId);
 
         socket.emit('joined-room', { 
           roomId, 
@@ -573,7 +745,7 @@ async function startServer() {
         });
 
         // Sync to Firestore
-        await saveLobbyToFirestore(roomId);
+        await saveLobbyToCloud(roomId);
 
         // Automatic start for matchmaking rooms when all expected players have selected
         // Or for manual rooms when everyone is ready
@@ -591,9 +763,11 @@ async function startServer() {
               if (room.missionTimer) clearInterval(room.missionTimer);
               room.missionTimer = undefined;
               room.status = 'IN_PROGRESS';
+              room.startTime = Date.now();
+              room.totalTurns = 0;
               io.to(roomId).emit('mission-start');
               startTurnTimer(roomId);
-              saveLobbyToFirestore(roomId).catch(e => console.error("Firestore Error on game start:", e));
+              saveLobbyToCloud(roomId).catch(e => console.error("Firestore Error on game start:", e));
             }
           }, 1000);
         } else if (!allReady && room.missionTimer) {
@@ -625,7 +799,9 @@ async function startServer() {
         room.missionTimer = undefined;
 
         room.status = 'IN_PROGRESS';
-        await saveLobbyToFirestore(roomId); // Sync final lobby status before starting
+        room.startTime = Date.now();
+        room.totalTurns = 0;
+        await saveLobbyToCloud(roomId); // Sync final lobby status before starting
         io.to(roomId).emit('mission-start');
         startTurnTimer(roomId);
       }
@@ -634,8 +810,18 @@ async function startServer() {
     socket.on('next-turn', ({ roomId, nextIndex }) => {
       const room = rooms.get(roomId);
       if (room) {
+        room.totalTurns = (room.totalTurns || 0) + 1;
         startTurnTimer(roomId, nextIndex);
         io.to(roomId).emit('turn-changed', { nextIndex });
+      }
+    });
+
+    socket.on('reset-room-timer', (roomId) => {
+      const room = rooms.get(roomId);
+      if (room) {
+        // Auction timer is shorter (15s) vs normal turns (45s)
+        // startTurnTimer handles the emission and interval management
+        startTurnTimer(roomId);
       }
     });
 
@@ -649,11 +835,21 @@ async function startServer() {
       }
     });
 
-    socket.on('sync-game-state', ({ roomId, gameState }) => {
+    socket.on('sync-game-state', async ({ roomId, gameState }) => {
       const room = rooms.get(roomId);
       if (room) {
+        // Track turn progression
+        if (room.gameState && room.gameState.currentPlayerIndex !== gameState.currentPlayerIndex) {
+          room.totalTurns = (room.totalTurns || 0) + 1;
+        }
+
         room.gameState = gameState;
         socket.to(roomId).emit('game-state-updated', gameState);
+
+        // Auto-finalize if a winner is detected in the sync
+        if (gameState.winner) {
+          await finalizeMissionStats(roomId);
+        }
       }
     });
 
@@ -732,6 +928,7 @@ async function startServer() {
             const winner = activePlayers[0];
             room.gameState.winner = winner.id;
             room.gameState.message = `Mission ended. Doctor ${winner.name} has secured the sector.`;
+            await finalizeMissionStats(roomId);
             
             // Add winner to rankings as 1st place
             room.gameState.rankings.unshift({
@@ -768,7 +965,7 @@ async function startServer() {
             playerName: playerToForfeit.name 
           });
 
-          await saveLobbyToFirestore(roomId);
+          await saveLobbyToCloud(roomId);
         }
       }
     });
@@ -805,6 +1002,7 @@ async function startServer() {
                 const winner = room.gameState.players.find((p: any) => !p.isBankrupt);
                 if (winner) {
                   room.gameState.winner = winner.id;
+                  await finalizeMissionStats(roomId);
                   const winnerRanking = {
                     id: winner.id,
                     name: winner.name,
@@ -855,9 +1053,9 @@ async function startServer() {
           if (room.turnTimer) clearInterval(room.turnTimer);
           if (room.missionTimer) clearInterval(room.missionTimer);
           rooms.delete(roomId);
-          await deleteLobbyFromFirestore(roomId);
+          await deleteLobbyFromCloud(roomId);
         } else {
-          await saveLobbyToFirestore(roomId);
+          await saveLobbyToCloud(roomId);
           io.to(roomId).emit('player-left', { 
             playerId: socket.id, 
             players: room.players, 
@@ -910,7 +1108,7 @@ async function startServer() {
             if (room.turnTimer) clearInterval(room.turnTimer);
             if (room.missionTimer) clearInterval(room.missionTimer);
             rooms.delete(roomId);
-            await deleteLobbyFromFirestore(roomId);
+            await deleteLobbyFromCloud(roomId);
           } else {
             // If in progress, also check for single remaining player win condition on disconnect
             if (room.status === 'IN_PROGRESS' && room.gameState && !room.gameState.winner) {
@@ -942,6 +1140,7 @@ async function startServer() {
                 if (remainingActive.length === 1) {
                   const winner = remainingActive[0];
                   room.gameState.winner = winner.id;
+                  await finalizeMissionStats(roomId);
                   const winnerRanking = {
                     id: winner.id,
                     name: winner.name,
@@ -961,7 +1160,7 @@ async function startServer() {
               }
             }
 
-            await saveLobbyToFirestore(roomId);
+            await saveLobbyToCloud(roomId);
             io.to(roomId).emit('player-left', { 
               playerId: socket.id, 
               players: room.players, 
@@ -979,65 +1178,84 @@ async function startServer() {
   // Firestore Matchmaking Monitor
   if (db) {
     console.log("Initializing Firestore Matchmaking Monitor...");
-    db.collection('matchmaking_queue').orderBy('joinedAt', 'asc').onSnapshot(async (snapshot) => {
-      const players = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+    async function formMatch(players: any[]) {
+      const selectedPlayers = players.slice(0, 4);
+      const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
       
-      if (players.length >= 4) {
-        const selectedPlayers = players.slice(0, 4);
-        const roomId = `MATCH_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      console.log(`[Sector Matchmaking] Forming sector ${roomId} from dual-cloud signals...`);
+      
+      const lobbyData = {
+        roomId,
+        status: 'selecting',
+        players: selectedPlayers.map((p, idx) => ({
+          id: p.socketId || p.socket_id || p.id,
+          name: p.name || 'Doctor',
+          email: p.email || '',
+          avatarId: p.avatarId || p.avatar_id || 'avatar_doctor',
+          isHost: idx === 0,
+          operator: null,
+          status: 'WAITING'
+        })),
+        selections: {},
+        selectedOperators: []
+      };
+
+      try {
+        // Sync new lobby to both clouds
+        await saveLobbyToCloud(roomId);
         
-        console.log(`[Sector Matchmaking] Forming sector ${roomId} from queue signal...`);
-        
-        const lobbyData = {
-          roomId,
-          status: 'selecting',
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          players: selectedPlayers.map((p, idx) => ({
-            id: p.socketId || p.id,
-            name: p.name || 'Doctor',
-            email: p.email || '',
-            avatarId: p.avatarId || 'avatar_doctor',
-            isHost: idx === 0,
-            operator: null,
-            status: 'WAITING'
-          })),
-          selections: {},
-          selectedOperators: []
-        };
-        
-        try {
-          // Create the lobby doc in Firestore
-          await db.collection('lobbies').doc(roomId).set(lobbyData);
-          
-          // Remove players from queue
+        // Remove players from both queues
+        if (db) {
           const batch = db.batch();
-          selectedPlayers.forEach(p => {
-            batch.delete(db.collection('matchmaking_queue').doc(p.id));
-          });
+          selectedPlayers.forEach(p => batch.delete(db.collection('matchmaking_queue').doc(p.id)));
           await batch.commit();
-          
-          // Emit to those specific sockets via Socket.IO for the initial navigation trigger
-          selectedPlayers.forEach(p => {
-            if (p.socketId) {
-              const s = io.sockets.sockets.get(p.socketId);
-              if (s) {
-                s.join(roomId);
-                s.emit('joined-room', { 
-                  roomId, 
-                  status: 'LOBBY', 
-                  isHost: p.id === selectedPlayers[0].id,
-                  players: lobbyData.players,
-                  selectedOperators: []
-                });
-                console.log(`[Sector Matchmaking] Pushed Doctor ${p.name} to sector ${roomId}.`);
-              }
-            }
-          });
-        } catch (e) {
-          console.error("[Matchmaking Error] Failed to stabilize sector:", e);
         }
+        // Try Supabase (High Stability)
+        if (supabase) {
+          await supabase.from('matchmaking_queue').delete().in('socket_id', selectedPlayers.map(p => p.socket_id || p.id));
+        }
+
+        // Notify sockets
+        selectedPlayers.forEach(p => {
+          const sid = p.socketId || p.socket_id || p.id;
+          const s = io.sockets.sockets.get(sid);
+          if (s) {
+            s.join(roomId);
+            s.emit('joined-room', { 
+              roomId, 
+              status: 'selecting', 
+              isHost: p === selectedPlayers[0],
+              players: lobbyData.players,
+              selectedOperators: []
+            });
+            console.log(`[Sector Matchmaking] Pushed Doctor ${p.name} to sector ${roomId}.`);
+          }
+        });
+      } catch (e) {
+        console.error("[Matchmaking Error] Failed to stabilize sector:", e);
       }
-    });
+    }
+
+    // 1. Firebase Matchmaking Listener
+    if (db) {
+      db.collection('matchmaking_queue').orderBy('joinedAt', 'asc').onSnapshot(async (snapshot) => {
+        const players = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+        if (players.length >= 4) await formMatch(players);
+      }, (err) => console.error("Firebase matchmaking listener failed (Quota?):", err));
+    }
+
+    // 2. Supabase Matchmaking Listener (Realtime)
+    if (supabase) {
+      supabase
+        .channel('matchmaking-queue')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'matchmaking_queue' }, async () => {
+          const { data, error } = await supabase.from('matchmaking_queue').select('*').order('joined_at', { ascending: true });
+          if (data && data.length >= 4 && !error) {
+            await formMatch(data);
+          }
+        })
+        .subscribe();
+    }
   }
 
   if (process.env.NODE_ENV !== 'production') {

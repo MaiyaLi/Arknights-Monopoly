@@ -47,10 +47,12 @@ import {
   Music,
   RotateCcw,
   SkipBack,
-  SkipForward
+  SkipForward,
+  RefreshCw
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { db } from './firebase';
+import { supabase } from './supabase';
 import { 
   collection, 
   doc, 
@@ -284,11 +286,12 @@ const App: React.FC = () => {
     auctionTimer: 15,
     turnTimeLimit: 45,
     lastAiTradeTime: 0,
-    chatMessages: [],
     tiles: TILES,
     turnCount: 0,
     rankings: []
   });
+
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
   const [socket, setSocket] = useState<Socket | null>(null);
   const [chatInput, setChatInput] = useState('');
@@ -309,50 +312,57 @@ const App: React.FC = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 sm:p-8"
     >
-      <div className="w-full max-w-sm flex flex-col items-center gap-8 relative">
-        {/* Animated Radar Effect */}
-        <div className="relative w-48 h-48 flex items-center justify-center">
-          <div className="absolute inset-0 border-2 border-orange-500/20 rounded-full animate-[ping_3s_linear_infinite]" />
-          <div className="absolute inset-4 border border-orange-500/30 rounded-full animate-[ping_2s_linear_infinite]" />
-          <div className="absolute inset-8 border border-orange-500/40 rounded-full animate-[ping_1.5s_linear_infinite]" />
-          <div className="w-24 h-24 rounded-full border-4 border-orange-500 flex items-center justify-center bg-zinc-900 shadow-[0_0_30px_rgba(249,115,22,0.3)]">
-            <Globe className="w-12 h-12 text-orange-500 animate-pulse" />
+      <div className="w-full max-w-2xl flex flex-col sm:flex-row items-center gap-6 md:gap-12 relative max-h-[90vh] overflow-y-auto no-scrollbar py-4 px-2">
+        {/* Animated Radar Effect - Left/Top */}
+        <div className="relative w-24 h-24 sm:w-40 sm:h-40 md:w-56 md:h-56 flex items-center justify-center shrink-0">
+          <div className="absolute inset-0 border-2 border-orange-500/10 rounded-full animate-[ping_3s_linear_infinite]" />
+          <div className="absolute inset-4 border border-orange-500/20 rounded-full animate-[ping_2s_linear_infinite]" />
+          <div className="w-16 h-16 sm:w-24 sm:h-24 md:w-32 md:h-32 rounded-full border-2 md:border-4 border-orange-500/50 flex items-center justify-center bg-zinc-900 shadow-[0_0_40px_rgba(249,115,22,0.2)]">
+            <Globe className="w-8 h-8 sm:w-12 sm:h-12 md:w-16 md:h-16 text-orange-500 animate-pulse" />
           </div>
         </div>
 
-        <div className="text-center space-y-2">
-          <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white">Scanning <span className="text-orange-500">Signal</span></h2>
-          <p className="text-[10px] text-zinc-500 font-mono tracking-[0.3em] uppercase animate-pulse">Search established: Tracking other Doctors</p>
-        </div>
-
-        <div className="w-full bg-zinc-900/50 border border-zinc-800 p-6 rounded-xl space-y-4">
-          <div className="flex justify-between items-end border-b border-zinc-800 pb-2">
-            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none">Queue Position</label>
-            <div className="text-2xl font-black italic text-orange-500 leading-none">{queuePosition} <span className="text-xs text-zinc-600 not-italic">/ {queueTotal}</span></div>
+        {/* Tactical Info - Right/Bottom */}
+        <div className="flex-1 flex flex-col gap-4 sm:gap-6 w-full min-w-0">
+          <div className="text-center sm:text-left space-y-1">
+            <h2 className="text-xl sm:text-2xl md:text-4xl font-black italic uppercase tracking-tighter text-white leading-none">Scanning <span className="text-orange-500">Signal</span></h2>
+            <p className="text-[8px] sm:text-[10px] text-zinc-500 font-mono tracking-[0.2em] md:tracking-[0.4em] uppercase animate-pulse">Search established: Tracking other Doctors</p>
           </div>
-          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
-            <motion.div 
-              className="h-full bg-orange-500"
-              initial={{ width: "0%" }}
-              animate={{ width: `${(queuePosition / Math.max(1, queueTotal)) * 100}%` }}
-            />
-          </div>
-          <p className="text-[9px] text-zinc-600 font-mono italic text-center">Protocol: Matchmaking will initialize at 4 Doctors.</p>
-        </div>
 
-        <button 
-          onClick={handleLeaveQueue}
-          className="px-8 py-3 bg-red-500/10 border border-red-500/50 text-red-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500 hover:text-black transition-all flex items-center gap-2 group"
-        >
-          <Loader2 className="w-4 h-4 animate-spin group-hover:hidden" />
-          <XCircle className="w-4 h-4 hidden group-hover:block" />
-          Abort Search
-        </button>
+          <div className="w-full bg-zinc-900/50 border border-zinc-800 p-4 sm:p-5 rounded-xl space-y-3 md:space-y-4 shadow-2xl relative overflow-hidden group">
+            <div className="flex justify-between items-end border-b border-zinc-800 pb-2">
+              <label className="text-[9px] sm:text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none">Queue Position</label>
+              <div className="text-xl sm:text-2xl md:text-3xl font-black italic text-orange-500 leading-none">
+                {queuePosition} <span className="text-xs text-zinc-600 not-italic font-mono">/ {queueTotal}</span>
+              </div>
+            </div>
+            <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+              <motion.div 
+                className="h-full bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]"
+                initial={{ width: "0%" }}
+                animate={{ width: `${(queuePosition / Math.max(1, queueTotal)) * 100}%` }}
+              />
+            </div>
+            <p className="text-[8px] sm:text-[9px] text-zinc-600 font-mono italic leading-tight">Matchmaking will initialize at 4 Doctors detected in sector.</p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <button 
+              onClick={handleLeaveQueue}
+              className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-red-500/10 border border-red-500/50 text-red-500 font-black uppercase italic tracking-widest rounded-sm hover:bg-red-500 hover:text-black transition-all flex items-center justify-center gap-2 group shrink-0 text-xs sm:text-sm"
+            >
+              <Loader2 className="w-4 h-4 animate-spin group-hover:hidden" />
+              <XCircle className="w-4 h-4 hidden group-hover:block" />
+              Abort Search
+            </button>
+            <div className="hidden md:block h-px flex-1 bg-gradient-to-r from-zinc-800 to-transparent" />
+          </div>
+        </div>
 
         {/* Scanline decoration */}
-        <div className="absolute inset-[-100px] pointer-events-none opacity-[0.05] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
+        <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
       </div>
     </motion.div>
   );
@@ -410,12 +420,11 @@ const App: React.FC = () => {
     return () => observer.disconnect();
   }, [gameState.gameStarted]);
 
-  const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Auto-scroll chat
   useEffect(() => {
-    scrollToBottom();
-  }, [gameState.chatMessages]);
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory]);
+
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
   const [missionCountdown, setMissionCountdown] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -733,8 +742,7 @@ const App: React.FC = () => {
       ...gameState,
       roomId: null, // Don't save roomId as it's transient
       isHost: true, // When loading, the loader becomes the host
-      activeCard: gameState.activeCard ? { id: gameState.activeCard.id } : null,
-      chatMessages: [] // Clear chat for privacy/size
+      activeCard: gameState.activeCard ? { id: gameState.activeCard.id } : null
     };
 
     const saveData = {
@@ -862,8 +870,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Phase III: Dynamic Backend Initialization (Local-Aware)
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (isLocal ? `${window.location.protocol}//${window.location.hostname}:3000` : 'https://arknights-monopoly.onrender.com');
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.') || window.location.hostname.endsWith('.local');
+    const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (isLocal ? window.location.origin : 'https://arknights-monopoly.onrender.com');
     
     addToLog(`Mission Control: Attempting tactical deep-link to ${BACKEND_URL}...`);
     
@@ -1100,12 +1108,11 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, players: hydratePlayers(players) }));
     });
 
-    newSocket.on('game-state-updated', (newState) => {
+    newSocket.on('game-state-updated', (syncedGameState) => {
       isNetworkUpdate.current = true;
       setGameState(prev => ({
         ...prev,
-        ...newState,
-        chatMessages: prev.chatMessages, // Preserve local chat messages
+        ...syncedGameState,
         isHost: prev.isHost, // PROTECT local host status
         gameMode: prev.gameMode,
         roomId: prev.roomId
@@ -1118,17 +1125,13 @@ const App: React.FC = () => {
     });
 
     newSocket.on('new-chat-message', (message) => {
-      setGameState(prev => ({
-        ...prev,
-        chatMessages: [...prev.chatMessages, message]
-      }));
+      if (message) {
+        setChatHistory(prev => [...(prev || []), message]);
+      }
     });
 
     newSocket.on('chat-history', (messages) => {
-      setGameState(prev => ({
-        ...prev,
-        chatMessages: messages
-      }));
+      setChatHistory(Array.isArray(messages) ? messages : []);
     });
 
     newSocket.on('timer-update', ({ remainingTime, turnTimeLimit }) => {
@@ -1138,10 +1141,20 @@ const App: React.FC = () => {
     newSocket.on('turn-timeout', () => {
       // Server-confirmed timeout, trigger skip logic
       setGameState(prev => {
-        if (prev.gameStarted && prev.turnTimer <= 0) {
-          const isMyTurn = prev.players[prev.currentPlayerIndex]?.id === newSocket.id;
-          if (isMyTurn) {
-            nextTurn(); // Just skip, don't autoplay
+        if (prev.gameStarted) {
+          // Priority 1: Handle Active Auction Timeout
+          if (prev.activeAuction && prev.isHost) {
+            // Host authoritatively skips the auction turn to avoid multi-skip desync
+            skipBid(true);
+            return prev;
+          }
+
+          // Priority 2: Handle Normal Turn Timeout
+          if (prev.turnTimer <= 0) {
+            const isMyTurn = prev.players[prev.currentPlayerIndex]?.id === newSocket.id;
+            if (isMyTurn) {
+              nextTurn(); 
+            }
           }
         }
         return prev;
@@ -1205,61 +1218,106 @@ const App: React.FC = () => {
       newSocket.disconnect();
     };
   }, []);
+  const handleCloudLobbyUpdate = useCallback((data: any) => {
+    setLobbyDoc(data);
+    
+    // Sync players from Cloud to state
+    if (data.players && Array.isArray(data.players)) {
+      isNetworkUpdate.current = true;
+      setGameState(prev => ({ 
+        ...prev, 
+        players: data.players,
+        // If lobby status is active, ensure gameStarted is true
+        gameStarted: data.status === 'active' || data.status === 'IN_PROGRESS' || prev.gameStarted
+      }));
+    }
 
-  // Firestore Lobby Listener
+    // Sync selected operators
+    if (data.selectedOperators) {
+      setSelectedOperators(data.selectedOperators);
+    }
+
+    // Handle auto-start countdown
+    if (data.status === 'selecting' && data.selectedOperators?.length === 4) {
+      if (matchmakingCountdown === null) {
+        setMatchmakingCountdown(5);
+      }
+    } else {
+      setMatchmakingCountdown(null);
+    }
+
+    // Handle transition to active
+    if ((data.status === 'active' || data.status === 'IN_PROGRESS') && !gameState.gameStarted) {
+      setGameState(prev => ({ ...prev, gameStarted: true }));
+      setShowCharacterSelect(false);
+      addToLog("Mission START! Tactical cloud synchronization complete.");
+      playSound(SOUNDS.GO);
+    }
+  }, [gameState.gameStarted, matchmakingCountdown, addToLog, playSound]);
+
+  // Hybrid Cloud Lobby Listener
   useEffect(() => {
     if (!gameState.roomId || gameState.gameMode === 'SINGLEPLAYER') return;
 
-    const lobbyRef = doc(db, 'lobbies', gameState.roomId);
-    const unsubscribe = onSnapshot(lobbyRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setLobbyDoc(data);
-        
-        // Sync players from Firestore to state
-        if (data.players && Array.isArray(data.players)) {
-          isNetworkUpdate.current = true;
-          setGameState(prev => ({ 
-            ...prev, 
-            players: data.players,
-            // If lobby status is active, ensure gameStarted is true
-            gameStarted: data.status === 'active' || prev.gameStarted
-          }));
-        }
-
-        // Sync selected operators
-        if (data.selectedOperators) {
-          setSelectedOperators(data.selectedOperators);
-        }
-
-        // Handle auto-start countdown
-        if (data.status === 'selecting' && data.selectedOperators?.length === 4) {
-          if (matchmakingCountdown === null) {
-            setMatchmakingCountdown(5);
+    let unsubscribeFirebase: () => void = () => {};
+    let unsubscribeSupabase: () => void = () => {};
+    
+    // 1. Firebase Listener (Legacy)
+    if (db) {
+      try {
+        const lobbyRef = doc(db, 'lobbies', gameState.roomId);
+        unsubscribeFirebase = onSnapshot(lobbyRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            handleCloudLobbyUpdate(data);
           }
-        } else {
-          setMatchmakingCountdown(null);
-        }
+        }, (error) => {
+          console.error("Firebase Sync Error:", error);
+        });
+      } catch (e) { console.error(e); }
+    }
 
-        // Handle transition to active
-        if (data.status === 'active' && !gameState.gameStarted) {
-          setGameState(prev => ({ ...prev, gameStarted: true }));
-          setShowCharacterSelect(false);
-          addToLog("Mission START! All operators deploy.");
-          playSound(SOUNDS.GO);
-        }
-      }
-    });
+    // 2. Supabase Listener (High Stability Realtime)
+    if (supabase) {
+      const channel = supabase
+        .channel(`lobby-${gameState.roomId}`)
+        .on('postgres_changes', { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'lobbies', 
+          filter: `room_id=eq.${gameState.roomId}` 
+        }, (payload) => {
+          const data = payload.new;
+          // Map Supabase snake_case to app camelCase
+          handleCloudLobbyUpdate({
+            ...data,
+            roomId: data.room_id,
+            hostId: data.host_id,
+            hostName: data.host_name,
+            hostEmail: data.host_email,
+            selectedOperators: data.selected_operators
+          });
+        })
+        .subscribe();
+      
+      unsubscribeSupabase = () => {
+        supabase.removeChannel(channel);
+      };
+    }
 
-    return () => unsubscribe();
-  }, [gameState.roomId, gameState.gameMode, gameState.gameStarted]);
+    return () => {
+      unsubscribeFirebase();
+      unsubscribeSupabase();
+    };
+  }, [gameState.roomId, gameState.gameMode, handleCloudLobbyUpdate]);
 
   // Countdown effect
   useEffect(() => {
     if (matchmakingCountdown === null) return;
     if (matchmakingCountdown <= 0) {
       if (gameState.isHost && gameState.roomId) {
-        updateDoc(doc(db, 'lobbies', gameState.roomId), { status: 'active' });
+        if (db) updateDoc(doc(db, 'lobbies', gameState.roomId), { status: 'active' }).catch(e => console.error(e));
+        if (supabase) supabase.from('lobbies').update({ status: 'active' }).eq('room_id', gameState.roomId).then(({ error }) => { if (error) console.error(error); });
       }
       return;
     }
@@ -1362,41 +1420,53 @@ const App: React.FC = () => {
         players: prev.players.map(p => p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p)
       }));
 
-      // SYNC TO FIRESTORE via Transaction to prevent double-picking
-      const lobbyRef = doc(db, 'lobbies', gameState.roomId);
-      runTransaction(db, async (transaction) => {
-        const lobbySnap = await transaction.get(lobbyRef);
-        if (!lobbySnap.exists()) return;
+      // SYNC TO BOTH CLOUDS (Operator Selection)
+      if (db) {
+        const lobbyRef = doc(db, 'lobbies', gameState.roomId);
+        runTransaction(db, async (transaction) => {
+          const lobbySnap = await transaction.get(lobbyRef);
+          if (!lobbySnap.exists()) return;
 
-        const data = lobbySnap.data();
-        const selections = data.selections || {};
-        const selectedOps = data.selectedOperators || [];
+          const data = lobbySnap.data();
+          const selections = data.selections || {};
+          const selectedOps = data.selectedOperators || [];
 
-        // Check if operator already taken
-        if (selections[selectedOp.name]) {
-          addToLog(`Error: ${selectedOp.name} has already been claimed by another Doctor.`);
-          return;
-        }
+          if (selections[selectedOp.name]) {
+            addToLog(`Error: ${selectedOp.name} is déjà deployed by another Doctor.`);
+            return;
+          }
 
-        // Update players array
-        const updatedPlayers = (data.players || []).map((p: any) => 
-          p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p
-        );
+          const updatedPlayers = (data.players || []).map((p: any) => 
+            p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p
+          );
 
-        transaction.update(lobbyRef, {
-          players: updatedPlayers,
-          [`selections.${selectedOp.name}`]: socket.id,
-          selectedOperators: [...selectedOps, selectedOp.name]
+          transaction.update(lobbyRef, {
+            players: updatedPlayers,
+            [`selections.${selectedOp.name}`]: socket.id,
+            selectedOperators: [...selectedOps, selectedOp.name]
+          });
+        }).catch(err => {
+          console.error("Firebase selection sync failed:", err);
         });
-      }).catch(err => {
-        console.error("Operator selection transaction failed:", err);
-      });
+      }
+
+      if (supabase) {
+        // Atomic operator selection for Supabase
+        supabase.from('lobbies').select('players, selected_operators').eq('room_id', gameState.roomId).single().then(({ data }) => {
+          if (!data) return;
+          const updatedPlayers = (data.players || []).map((p: any) => 
+            p.id === socket.id ? { ...p, operator: selectedOp, status: 'READY' } : p
+          );
+          supabase!.from('lobbies').update({
+            players: updatedPlayers,
+            selected_operators: [...(data.selected_operators || []), selectedOp.name]
+          }).eq('room_id', gameState.roomId).then(() => {
+             addToLog(`Confirmed deployment: ${selectedOp.name} (Combined Link Active).`);
+          });
+        });
+      }
     }
   };
-
-  useEffect(() => {
-    // We no longer auto-start. The host must click start.
-  }, []);
 
   const handleHost = () => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -1458,10 +1528,7 @@ const App: React.FC = () => {
       socket.emit('send-chat-message', { roomId: gameState.roomId, message });
     } else {
       // Local chat for single player
-      setGameState(prev => ({
-        ...prev,
-        chatMessages: [...prev.chatMessages, message]
-      }));
+      setChatHistory(prev => [...prev, message]);
     }
     setChatInput('');
   };
@@ -1475,16 +1542,34 @@ const App: React.FC = () => {
       // 1. Classic socket queue (for legacy support/metrics)
       socket.emit('queue-online');
 
-      // 2. FIRESTORE Matchmaking Queue
-      const queueRef = doc(db, 'matchmaking_queue', socket.id);
-      await setDoc(queueRef, {
-        socketId: socket.id,
+      // 2. HYBRID Matchmaking Queue
+      const queueData = {
+        socket_id: socket.id,
         name: profile.name,
         email: profile.email,
-        avatarId: profile.avatarId,
-        joinedAt: serverTimestamp()
-      });
-      addToLog("Sector Search: Broadcasting frequency to Rhodes Island relay.");
+        avatar_id: profile.avatarId,
+        joined_at: new Date().toISOString()
+      };
+
+      if (supabase) {
+        supabase.from('matchmaking_queue').upsert(queueData).then(({ error }) => { if (error) console.error("Supabase Queue Error:", error); });
+      }
+
+      // Try Firebase (Legacy) - with resilience
+      if (db) {
+        try {
+          const queueRef = doc(db, 'matchmaking_queue', socket.id);
+          setDoc(queueRef, {
+            ...queueData,
+            joinedAt: serverTimestamp() // Firestore uses different timestamp format
+          }).catch(e => console.error("Firebase Queue Error:", e));
+          addToLog("Sector Search: Broadcasting frequency to Rhodes Island relay.");
+        } catch (e) {
+          console.error("Firebase queue failed:", e);
+        }
+      } else {
+         addToLog("Sector Search: Initiating direct tactical link.");
+      }
     }
   };
 
@@ -1493,8 +1578,15 @@ const App: React.FC = () => {
     setGameState(prev => ({ ...prev, gameMode: null, message: 'Mission search aborted.' }));
     if (socket) {
       socket.emit('leave-queue');
-      // Remove from Firestore queue
-      await deleteDoc(doc(db, 'matchmaking_queue', socket.id));
+      // Cleanup both clouds
+      if (supabase) {
+        supabase.from('matchmaking_queue').delete().eq('socket_id', socket.id).then(({ error }) => { if (error) console.error("Supabase cleanup error:", error); });
+      }
+      if (db) {
+        try {
+          deleteDoc(doc(db, 'matchmaking_queue', socket.id));
+        } catch (e) { console.error("Firebase cleanup error:", e); }
+      }
     }
   };
 
@@ -1511,8 +1603,7 @@ const App: React.FC = () => {
       }
       
       // Throttled sync - ONLY sync shared game data, NOT local-only properties
-      const { chatMessages, isHost, gameMode, roomId, ...stateToSync } = gameState;
-      socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: stateToSync });
+      socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: gameState });
     }
   }, [gameState.currentPlayerIndex, gameState.gameStarted, gameState.isHost, gameState.roomId, socket]);
 
@@ -1563,7 +1654,6 @@ const App: React.FC = () => {
       readyPlayers: [],
       consecutiveDoubles: 0,
       turnTimer: 45,
-      chatMessages: [],
       tiles: TILES
     });
     setShowGameOver(false);
@@ -1637,8 +1727,8 @@ const App: React.FC = () => {
       };
       
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
+        socket.emit('reset-room-timer', prev.roomId); // RESET TIMER FOR AUCTION START
       }
       
       return newState;
@@ -1679,8 +1769,7 @@ const App: React.FC = () => {
         };
         
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
         
         return newState;
@@ -1704,8 +1793,8 @@ const App: React.FC = () => {
       };
       
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
+        socket.emit('reset-room-timer', prev.roomId); // RESET TIMER FOR NEXT BIDDER
       }
       
       return newState;
@@ -1726,8 +1815,7 @@ const App: React.FC = () => {
         const newState = { ...prev, activeAuction: null, message: "Auction ended with no winner." };
         
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
         
         return newState;
@@ -1758,8 +1846,7 @@ const App: React.FC = () => {
         };
         
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
         
         return newState;
@@ -1780,8 +1867,7 @@ const App: React.FC = () => {
         };
         
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
         
         return newState;
@@ -1816,8 +1902,7 @@ const App: React.FC = () => {
       };
       
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
       
       return newState;
@@ -1861,8 +1946,7 @@ const App: React.FC = () => {
       };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -1893,8 +1977,7 @@ const App: React.FC = () => {
       };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -1913,8 +1996,7 @@ const App: React.FC = () => {
       };
       
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
       
       return newState;
@@ -1979,8 +2061,7 @@ const App: React.FC = () => {
       };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -2015,8 +2096,7 @@ const App: React.FC = () => {
         };
 
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
 
         return newState;
@@ -2040,8 +2120,7 @@ const App: React.FC = () => {
         addToLog(`${currentP.name} mortgaged ${tile.name}.`);
         const newState = { ...prev, players: updatedPlayers, tiles: updatedTiles, message: `Mortgaged ${tile.name} for ${mortgageValue} Orundum.` };
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
         return newState;
       }
@@ -2125,8 +2204,8 @@ const App: React.FC = () => {
         socket.emit('next-turn', { roomId: gameState.roomId, nextIndex });
         // Force a supplemental sync to ensure everyone has the definitive final state of the previous player
         // We explicitly pass the nextIndex to ensure the server and all clients align
-        const { chatMessages, ...stateToSync } = { ...gameState, currentPlayerIndex: nextIndex, hasRolled: false, isRolling: false };
-        socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: stateToSync });
+        const updatedState = { ...gameState, currentPlayerIndex: nextIndex, hasRolled: false, isRolling: false };
+        socket.emit('sync-game-state', { roomId: gameState.roomId, gameState: updatedState });
       }, 100);
     }
   }, [socket, gameState.roomId, gameState.currentPlayerIndex, gameState.players, gameState]);
@@ -2192,9 +2271,9 @@ const App: React.FC = () => {
         };
 
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = finalState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: finalState });
         }
+
 
         return finalState;
       }
@@ -2235,8 +2314,7 @@ const App: React.FC = () => {
       };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         
         // Only trigger next-turn if the forfeiting player WAS the current player
         if (prev.players[prev.currentPlayerIndex].id === player.id && !newState.winner) {
@@ -2357,10 +2435,7 @@ const App: React.FC = () => {
     if (socket && gameState.roomId) {
       socket.emit('send-chat-message', { roomId: gameState.roomId, message });
     } else {
-      setGameState(prev => ({
-        ...prev,
-        chatMessages: [...prev.chatMessages, message]
-      }));
+      setChatHistory(prev => [...(prev || []), message]);
     }
   }, [socket, gameState.roomId]);
 
@@ -2397,8 +2472,7 @@ const App: React.FC = () => {
       }
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -2439,8 +2513,7 @@ const App: React.FC = () => {
       }
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -2465,8 +2538,7 @@ const App: React.FC = () => {
       const newState = { ...prev, players: updatedPlayers, message: `${player.name} was sent to the detention center!` };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -2496,8 +2568,7 @@ const App: React.FC = () => {
               setGameState(prev => {
                 const newState = { ...prev, message: `Landed on ${tile.name}. The Sector Commander has left the field.` };
                 if (socket && prev.roomId && !isNetworkUpdate.current) {
-                  const { chatMessages, ...stateToSync } = newState;
-                  socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+                  socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
                 }
                 return newState;
               });
@@ -2507,8 +2578,7 @@ const App: React.FC = () => {
           setGameState(prev => {
             const newState = { ...prev, message: `Land on ${tile.name}. Would you like to buy it for ${tile.cost} Orundum? (If not, it will be auctioned)` };
             if (socket && prev.roomId && !isNetworkUpdate.current) {
-              const { chatMessages, ...stateToSync } = newState;
-              socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+              socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
             }
             return newState;
           });
@@ -2566,8 +2636,7 @@ const App: React.FC = () => {
       };
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       return newState;
@@ -2602,8 +2671,7 @@ const App: React.FC = () => {
       }
 
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
 
       if (!skipLandingAction && newPos !== currentP.position) {
@@ -2663,8 +2731,7 @@ const App: React.FC = () => {
       
       // Explicit sync after movement finishes
       if (socket && prev.roomId && !isNetworkUpdate.current) {
-        const { chatMessages, ...stateToSync } = newState;
-        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+        socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
       }
       
       return newState;
@@ -2711,8 +2778,7 @@ const App: React.FC = () => {
         };
 
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
 
         return newState;
@@ -2797,8 +2863,7 @@ const App: React.FC = () => {
         const newState = { ...prev, players: updatedPlayers, message: `${currentP.name} paid ${JAIL_FEE} Orundum to leave detention.` };
 
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = newState;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: newState });
         }
 
         return newState;
@@ -2917,8 +2982,7 @@ const App: React.FC = () => {
       // Explicit sync after dice roll
       setGameState(prev => {
         if (socket && prev.roomId && !isNetworkUpdate.current) {
-          const { chatMessages, ...stateToSync } = prev;
-          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: stateToSync });
+          socket.emit('sync-game-state', { roomId: prev.roomId, gameState: prev });
         }
         return prev;
       });
@@ -2972,6 +3036,13 @@ const App: React.FC = () => {
     }
     return () => clearInterval(timer);
   }, [gameState.activeAuction, gameState.gameStarted]);
+
+  // STRIKE GUARD: Auto-pass when auction timer hits zero
+  useEffect(() => {
+    if (gameState.activeAuction && gameState.auctionTimer === 0) {
+      skipBid(true);
+    }
+  }, [gameState.auctionTimer, gameState.activeAuction, skipBid]);
 
   // AI Card Interaction
   useEffect(() => {
@@ -3453,47 +3524,47 @@ const App: React.FC = () => {
               className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md"
             >
               <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-full">
-                <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+                <div className="p-4 md:p-6 border-b border-zinc-800 flex justify-between items-center">
                   <div>
-                    <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Identity <span className="text-orange-500">Verification</span></h2>
-                    <p className="text-xs text-zinc-500 font-mono">ENFORCE IDENTIFICATION PROTOCOL</p>
+                    <h2 className="text-lg md:text-2xl font-black italic uppercase tracking-tighter text-white leading-none">Identity <span className="text-orange-500">Verification</span></h2>
+                    <p className="text-[8px] md:text-xs text-zinc-500 font-mono mt-0.5">ENFORCE IDENTIFICATION PROTOCOL</p>
                   </div>
                   {profile.email && (
-                    <button onClick={() => setShowProfile(false)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors">
-                      <X className="w-5 h-5 text-zinc-400" />
+                    <button onClick={() => setShowProfile(false)} className="p-1.5 hover:bg-zinc-800 rounded-full transition-colors">
+                      <X className="w-4 h-4 md:w-5 md:h-5 text-zinc-400" />
                     </button>
                   )}
                 </div>
 
-                <div className="p-6 space-y-6 overflow-y-auto">
-                  <div className="space-y-4">
+                <div className="p-4 md:p-6 space-y-4 md:space-y-6 overflow-y-auto max-h-[60vh] md:max-h-none">
+                  <div className="space-y-3 md:space-y-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Doctor Codename</label>
+                      <label className="text-[8px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Doctor Codename</label>
                       <input 
                         type="text" 
                         value={profile.name}
                         onChange={(e) => setProfile(prev => ({ ...prev, name: e.target.value }))}
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 text-white focus:border-orange-500 outline-none transition-colors"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 md:p-3 text-white focus:border-orange-500 outline-none transition-colors text-sm"
                         placeholder="Enter Codename..."
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Identification Email</label>
+                      <label className="text-[8px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Identification Email</label>
                       <input 
                         type="email" 
                         value={profile.email}
                         onChange={(e) => setProfile(prev => ({ ...prev, email: e.target.value }))}
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-3 text-white focus:border-orange-500 outline-none transition-colors"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 md:p-3 text-white focus:border-orange-500 outline-none transition-colors text-sm"
                         placeholder="doctor@rhodesisland.ri"
                       />
-                      <p className="text-[8px] text-zinc-600 font-mono italic pl-1">Unique primary key required for network operations.</p>
+                      <p className="text-[7px] md:text-[8px] text-zinc-600 font-mono italic pl-1">Unique primary key required for network operations.</p>
                     </div>
                   </div>
 
                   <div className="space-y-3">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Tactical Avatar</label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <label className="text-[8px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">Tactical Avatar</label>
+                    <div className="grid grid-cols-6 md:grid-cols-4 gap-1.5 md:gap-2">
                       {AVATARS.map(avatar => (
                         <button
                           key={avatar.id}
@@ -3507,7 +3578,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-6 bg-zinc-900/50 border-t border-zinc-800">
+                <div className="p-4 md:p-6 bg-zinc-900/50 border-t border-zinc-800">
                   <button
                     onClick={() => {
                       if (!profile.email || !profile.name) {
@@ -3520,9 +3591,9 @@ const App: React.FC = () => {
                       setIsIdentified(true);
                       setShowProfile(false);
                     }}
-                    className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white font-black italic uppercase tracking-widest rounded-md scenario-btn-shadow transition-all flex items-center justify-center gap-2 group"
+                    className="w-full py-3 md:py-4 bg-orange-600 hover:bg-orange-500 text-white font-black italic uppercase tracking-widest rounded-md scenario-btn-shadow transition-all flex items-center justify-center gap-2 group text-xs md:text-sm"
                   >
-                    <ShieldCheck className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                    <ShieldCheck className="w-4 h-4 md:w-5 md:h-5 group-hover:scale-110 transition-transform" />
                     Initialize Identity
                   </button>
                 </div>
@@ -3537,7 +3608,7 @@ const App: React.FC = () => {
                   initial={{ opacity: 0, scale: 0.9, y: 20 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                  className="z-10 w-full max-w-sm bg-zinc-950 border-2 border-orange-500/30 p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
+                  className="z-10 w-full max-w-sm bg-zinc-950 border-2 border-orange-500/30 p-4 md:p-8 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
                 >
               {/* Decorative scanline and grid */}
               <div className="absolute inset-0 pointer-events-none opacity-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
@@ -3546,10 +3617,10 @@ const App: React.FC = () => {
               <div className="relative z-10 space-y-6">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-4 bg-orange-500" />
-                    <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Join <span className="text-orange-500">Mission</span></h2>
+                    <div className="w-1.5 h-3 md:w-2 md:h-4 bg-orange-500" />
+                    <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-tighter text-white leading-none">Join <span className="text-orange-500">Mission</span></h2>
                   </div>
-                  <div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] font-mono">Sector Synchronization Protocol</div>
+                  <div className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] font-mono">Sector Synchronization Protocol</div>
                 </div>
 
                 <div className="space-y-4">
@@ -3642,24 +3713,24 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-zinc-800/50">
                   <button 
                     onClick={() => setShowProfile(true)}
-                    className="py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                    className="py-1.5 md:py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                   >
-                    <User className="w-3.5 h-3.5" />
-                    <span className="text-[6px] font-black uppercase tracking-widest">Dossier</span>
+                    <User className="w-3 md:w-3.5 h-3 md:h-3.5" />
+                    <span className="text-[5px] md:text-[6px] font-black uppercase tracking-widest">Dossier</span>
                   </button>
                   <button 
                     onClick={() => setShowArchives(true)}
-                    className="py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                    className="py-1.5 md:py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                   >
-                    <TrendingUp className="w-3.5 h-3.5" />
-                    <span className="text-[6px] font-black uppercase tracking-widest">Archives</span>
+                    <TrendingUp className="w-3 md:w-3.5 h-3 md:h-3.5" />
+                    <span className="text-[5px] md:text-[6px] font-black uppercase tracking-widest">Archives</span>
                   </button>
                   <button 
                     onClick={() => setShowSettings(true)}
-                    className="py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
+                    className="py-1.5 md:py-2 bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded-lg hover:text-white hover:border-zinc-700 transition-all flex flex-col items-center gap-1 shadow-sm"
                   >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span className="text-[6px] font-black uppercase tracking-widest">Terminal</span>
+                    <Settings className="w-3 md:w-3.5 h-3 md:h-3.5" />
+                    <span className="text-[5px] md:text-[6px] font-black uppercase tracking-widest">Terminal</span>
                   </button>
                 </div>
               </div>
@@ -3671,7 +3742,7 @@ const App: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="z-10 flex flex-col items-center justify-center gap-6 lg:gap-10 max-w-5xl w-full px-6 py-8 overflow-y-auto no-scrollbar mx-auto"
+              className="z-10 flex flex-col items-center lg:justify-center gap-6 lg:gap-10 max-w-5xl w-full px-6 py-10 lg:py-8 overflow-y-auto no-scrollbar mx-auto"
             >
               {/* Central Command Header */}
               <div className="flex flex-col items-center text-center gap-3">
@@ -3704,13 +3775,13 @@ const App: React.FC = () => {
                       setGameState(prev => ({ ...prev, gameMode: 'SINGLEPLAYER' }));
                       setShowCharacterSelect(true);
                     }}
-                    className="group relative w-full h-full overflow-hidden p-6 bg-orange-500/90 hover:bg-orange-500 text-black rounded-2xl transition-all flex flex-col items-center justify-center gap-4 shadow-xl active:scale-[0.98]"
+                    className="group relative w-full h-full overflow-hidden p-4 md:p-6 bg-orange-500/90 hover:bg-orange-500 text-black rounded-2xl transition-all flex flex-col items-center justify-center gap-3 md:gap-4 shadow-xl active:scale-[0.98]"
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent pointer-events-none" />
-                    <Play className="w-10 h-10 group-hover:scale-110 transition-transform" />
+                    <Play className="w-8 h-8 md:w-10 md:h-10 group-hover:scale-110 transition-transform" />
                     <div className="text-center">
-                      <span className="block text-lg font-black uppercase italic tracking-widest">Solo Operation</span>
-                      <span className="text-[10px] font-bold opacity-70 uppercase tracking-tighter">Local AI Mission Protocol</span>
+                      <span className="block text-base md:text-lg font-black uppercase italic tracking-widest leading-tight">Solo Operation</span>
+                      <span className="text-[9px] md:text-[10px] font-bold opacity-70 uppercase tracking-tighter">Local AI Mission Protocol</span>
                     </div>
                   </button>
                 </div>
@@ -3753,8 +3824,11 @@ const App: React.FC = () => {
                       />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[9px] font-black text-zinc-500 uppercase truncate">{profile.name || 'IDENTIFY DOCTOR'}</p>
-                      <p className="text-[8px] text-orange-500 font-mono">ID: RI-PRTS-{profile.level || 1}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[9px] font-black text-zinc-500 uppercase truncate">{profile.name || 'IDENTIFY DOCTOR'}</p>
+                        <span className="text-[7px] px-1 bg-orange-500/20 text-orange-500 rounded-sm font-black italic">LV.{profile.level || 1}</span>
+                      </div>
+                      <p className="text-[7px] text-zinc-600 font-mono mt-0.5">AUTH_ID: RI-PRTS-{profile.email.split('@')[0].toUpperCase() || 'SYS'}</p>
                     </div>
                   </div>
 
@@ -3841,7 +3915,7 @@ const App: React.FC = () => {
               </AnimatePresence>
 
               {/* Tactical Header */}
-              <div className="flex items-center justify-between border-b-2 border-zinc-800 pb-3 gap-6 shrink-0 bg-zinc-950/50 p-4 rounded-t-2xl">
+              <div className={`flex items-center justify-between border-b-2 border-zinc-800 pb-3 gap-6 shrink-0 bg-zinc-950/50 p-4 rounded-t-2xl ${previewOperator ? 'hidden lg:flex' : 'flex'}`}>
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-orange-500 flex items-center justify-center rounded-lg skew-x-[-10deg] shadow-[0_0_15px_rgba(249,115,22,0.3)]">
                     <Shield className="w-6 h-6 text-black" />
@@ -3958,7 +4032,7 @@ const App: React.FC = () => {
               <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden mt-4 p-4 lg:p-0 relative">
                 {/* Left: Interactive Grid */}
                 <div className="flex-1 overflow-y-auto no-scrollbar pr-2">
-                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-8">
+                  <div className="grid grid-cols-6 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-5 xl:grid-cols-6 gap-2 md:gap-3 pb-8">
                     {OPERATORS.map((op) => {
                       const selectingPlayer = gameState.players.find(p => {
                         const pOpName = typeof p.operator === 'string' ? p.operator : p.operator?.name;
@@ -4032,63 +4106,60 @@ const App: React.FC = () => {
                           initial={{ opacity: 0, scale: 0.95 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
-                          className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] lg:border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-[100] fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 lg:overflow-hidden"
+                          className="w-full lg:w-[450px] shrink-0 bg-[#0d0d0d] lg:border-l border-zinc-800 flex flex-col shadow-2xl relative select-none z-[100] fixed inset-0 lg:relative lg:inset-auto h-[100dvh] lg:h-[calc(100vh-120px)] lg:rounded-2xl lg:m-4 overflow-hidden"
                         >
                       {/* Dossier Background Decoration */}
                       <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/5 blur-[100px] rounded-full pointer-events-none" />
                       
                       {/* 1. Header Area - Fixed */}
-                      <div className="flex-none p-6 border-b border-zinc-800/50 bg-zinc-900/30 backdrop-blur-md flex items-start justify-between z-20">
+                      <div className="flex-none p-3 lg:p-6 border-b border-zinc-800/50 bg-zinc-900/30 backdrop-blur-md flex items-center justify-between z-20">
                         <div>
-                          <div className="text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mb-1">Intelligence File</div>
-                          <h3 className="text-4xl font-black italic tracking-tighter uppercase leading-none">{previewOperator.name}</h3>
-                          <div className="text-xs font-mono text-zinc-500 mt-1 uppercase tracking-widest">{previewOperator.title}</div>
+                          <div className="hidden lg:block text-[10px] font-black text-orange-500 uppercase tracking-[0.4em] mb-1">Intelligence File</div>
+                          <h3 className="text-2xl lg:text-4xl font-black italic tracking-tighter uppercase leading-none">{previewOperator.name} <span className="lg:hidden text-[10px] font-mono text-zinc-500 uppercase tracking-widest ml-2">[{previewOperator.title}]</span></h3>
+                          <div className="hidden lg:block text-xs font-mono text-zinc-500 mt-1 uppercase tracking-widest">{previewOperator.title}</div>
                         </div>
-                        <div className="w-12 h-12 bg-zinc-950 border border-zinc-800 rounded-xl p-1 shrink-0">
-                          <div className="w-full h-full rounded-lg" style={{ backgroundColor: previewOperator.color }} />
+                        <div className="w-8 h-8 lg:w-12 lg:h-12 bg-zinc-950 border border-zinc-800 rounded-lg lg:rounded-xl p-1 shrink-0">
+                          <div className="w-full h-full rounded-md lg:rounded-lg" style={{ backgroundColor: previewOperator.color }} />
                         </div>
                       </div>
 
                       {/* 2. Scrollable Body Area - Portrait & Details */}
-                      <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-                        
-                        {/* Portrait Preview - Dynamic height constraint */}
-                        <div className="aspect-[4/5] w-full max-h-[35vh] lg:max-h-[500px] rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait shrink-0">
-                          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent z-10" />
-                          <img 
-                            src={previewOperator.portrait} 
-                            alt={previewOperator.name} 
-                            className="w-full h-full object-contain md:object-cover transition-transform duration-1000 group-hover:scale-105" 
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
-                             <div className="bg-black/80 backdrop-blur px-2 py-1 border border-zinc-800 text-[8px] font-mono text-zinc-400">COORD: {Math.floor(Math.random()*900)},{Math.floor(Math.random()*900)}</div>
-                             <div className="bg-orange-500/10 backdrop-blur px-2 py-1 border border-orange-500/30 text-[8px] font-black text-orange-500 italic">SYSTEM READY</div>
-                          </div>
-                        </div>
-
-                        {/* Skill Intel - Critical block */}
-                        <div className="space-y-6">
-                          <div className="p-5 bg-zinc-900/50 rounded-2xl border border-zinc-800/50 shadow-lg">
-                            <div className="flex items-center gap-3 mb-3 text-orange-500">
-                              <Zap className="w-5 h-5 fill-orange-500/20" />
-                              <span className="text-sm font-black uppercase tracking-[0.2em]">Tactical Passive: {previewOperator.skill.name}</span>
+                      <div className="flex-1 overflow-y-auto p-3 lg:p-6 no-scrollbar">
+                        <div className="flex flex-col lg:flex-col gap-3 lg:gap-8">
+                          <div className="flex flex-row lg:flex-col gap-4">
+                            {/* Portrait Preview - Dynamic height constraint */}
+                            <div className="aspect-[3/4] lg:aspect-[4/5] w-28 md:w-40 lg:w-full h-auto lg:max-h-[500px] rounded-xl lg:rounded-2xl overflow-hidden border border-zinc-800 shadow-inner bg-zinc-950 relative group/portrait shrink-0">
+                              <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-zinc-950 via-transparent to-transparent z-10" />
+                              <img 
+                                src={previewOperator.portrait} 
+                                alt={previewOperator.name} 
+                                className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" 
+                                referrerPolicy="no-referrer"
+                              />
                             </div>
-                            <p className="text-base text-zinc-300 leading-relaxed font-medium italic opacity-90">{previewOperator.skill.description}</p>
-                          </div>
-                          
-                          <div className="p-5 border-l-4 border-orange-500/50 bg-zinc-900/20 rounded-r-2xl">
-                            <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 opacity-60">Dossier Summary</div>
-                            <p className="text-sm text-zinc-400 font-medium italic leading-relaxed">"{previewOperator.description}"</p>
+
+                            {/* Skill Intel & Summary - Side by Side on Mobile */}
+                            <div className="flex-1 space-y-3">
+                              <div className="p-3 lg:p-5 bg-zinc-900/50 rounded-xl lg:rounded-2xl border border-zinc-800/50 shadow-lg">
+                                <div className="flex items-center gap-2 mb-1.5 text-orange-500">
+                                  <Zap className="w-3.5 h-3.5 lg:w-5 lg:h-5 fill-orange-500/20" />
+                                  <span className="text-[10px] lg:text-sm font-black uppercase tracking-widest lg:tracking-[0.2em]">Passive: {previewOperator.skill.name}</span>
+                                </div>
+                                <p className="text-[11px] lg:text-base text-zinc-300 leading-tight lg:leading-relaxed font-medium italic opacity-90">{previewOperator.skill.description}</p>
+                              </div>
+                              
+                              <div className="p-3 lg:p-5 border-l-2 lg:border-l-4 border-orange-500/50 bg-zinc-900/20 rounded-r-xl lg:rounded-r-2xl">
+                                <div className="text-[8px] lg:text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1 opacity-60">Dossier Summary</div>
+                                <p className="text-[10px] lg:text-sm text-zinc-400 font-medium italic leading-tight lg:leading-relaxed">"{previewOperator.description}"</p>
+                              </div>
+                            </div>
                           </div>
                         </div>
-
-                        <div className="h-4 shrink-0" /> {/* Bottom spacer for scroll area */}
                       </div>
 
                       {/* 3. Footer Area - Sticky Buttons - Increased safety padding for mobile */}
-                      <div className="flex-none p-4 pb-12 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-50 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
-                        <div className="flex flex-col gap-4">
+                      <div className="flex-none p-4 pb-16 md:pb-12 lg:p-6 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-50 shadow-[0_-20px_40px_rgba(0,0,0,0.4)]">
+                        <div className="flex flex-row lg:flex-col gap-2 lg:gap-4">
                           {(() => {
                             const isSelectedByOther = selectedOperators.includes(previewOperator.name) && 
                               !gameState.players.find(p => (p.id === socket?.id || (gameState.gameMode === 'SINGLEPLAYER' && p.id === 'player-1')) && (typeof p.operator === 'string' ? p.operator : p.operator?.name) === previewOperator.name);
@@ -4106,9 +4177,9 @@ const App: React.FC = () => {
                                 {!isSelectedByOther && (
                                   <motion.div animate={{ x: ['-100%', '200%'] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-[-20deg]" />
                                 )}
-                                <Shield className="w-6 h-6" />
-                                <span className="text-lg">
-                                  {isSelectedByOther ? 'Operator Deployed' : 'Initialize Deployment'}
+                                <Shield className="w-5 h-5 lg:w-6 lg:h-6" />
+                                <span className="text-sm lg:text-lg">
+                                  {isSelectedByOther ? 'Deployed' : 'Confirm'}
                                 </span>
                               </button>
                             );
@@ -4118,9 +4189,10 @@ const App: React.FC = () => {
                               e.stopPropagation();
                               setPreviewOperator(null);
                             }}
-                            className="w-full py-4 bg-transparent border border-zinc-700/50 text-zinc-400 text-xs font-black uppercase italic tracking-[0.3em] rounded-2xl hover:bg-zinc-800 hover:text-white hover:border-zinc-500 transition-all active:scale-95"
+                            className="w-[45%] lg:w-full py-4 bg-transparent border border-zinc-700/50 text-zinc-400 text-[10px] md:text-xs font-black uppercase italic tracking-[0.1em] lg:tracking-[0.3em] rounded-2xl hover:bg-zinc-800 hover:text-white hover:border-zinc-500 transition-all active:scale-95 flex items-center justify-center gap-2"
                           >
-                            Return to Selection Grid
+                            <XCircle className="w-4 h-4 lg:hidden" />
+                            <span className="truncate">Return</span>
                           </button>
                         </div>
                       </div>
@@ -4144,74 +4216,163 @@ const App: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-         ) : (
+) : (
           <div className="h-full w-full overflow-hidden relative flex flex-col landscape:flex-row">
        {/* Futuristic Grid Background */}
        <div className="absolute inset-0 z-0 pointer-events-none opacity-20" 
               style={{ backgroundImage: 'radial-gradient(#ff8c00 1px, transparent 0)', backgroundSize: '40px 40px' }} />
 
-      {/* Panel Toggles (Universal) */}
-      <div className="fixed landscape:relative left-4 landscape:left-0 top-1/2 landscape:top-0 -translate-y-1/2 landscape:translate-y-0 w-14 landscape:h-full z-50 flex flex-col items-center justify-center gap-6 p-2 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r rounded-2xl landscape:rounded-none shadow-2xl">
+      {/* Mobile-Only Action Cluster (Bottom Right) */}
+      <div className="lg:hidden fixed bottom-6 right-6 z-[200] flex flex-col items-end gap-3 pointer-events-none">
+        {/* Dynamic Action Zone (Buy/Auction) */}
+        <AnimatePresence>
+          {isLocalTurn && gameState.gameStarted && !gameState.winner && !localPlayer?.isBankrupt && gameState.hasRolled && !gameState.activeAuction && currentPlayer && ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[currentPlayer.position].type) && !tiles[currentPlayer.position].ownerId && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="flex flex-col gap-2 pointer-events-auto"
+            >
+              <button
+                onClick={buyProperty}
+                disabled={(currentPlayer?.orundum || 0) < (tiles[currentPlayer.position].cost || 0)}
+                className="w-32 py-2 bg-orange-500 text-black text-[10px] font-black uppercase italic tracking-widest rounded-sm flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+              >
+                <Package className="w-4 h-4" /> Acquire
+              </button>
+              <button
+                onClick={() => startAuction(currentPlayer.position)}
+                className="w-32 py-2 bg-zinc-800 border border-zinc-700 text-zinc-300 text-[10px] font-black uppercase italic tracking-widest rounded-sm flex items-center justify-center gap-2 shadow-lg"
+              >
+                <TrendingUp className="w-4 h-4" /> Auction
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Primary Actions (Roll/End Turn) */}
+        <div className="flex items-center gap-3 pointer-events-auto">
+          {gameState.gameStarted && !gameState.winner && !localPlayer?.isBankrupt && (
+            <>
+              {isLocalTurn && (!gameState.hasRolled || gameState.canRollAgain) ? (
+                <button
+                  onClick={rollDice}
+                  disabled={gameState.isRolling}
+                  className="w-16 h-16 rounded-full bg-orange-500 text-black flex items-center justify-center shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all active:scale-90"
+                >
+                  {gameState.isRolling ? <Loader2 className="w-8 h-8 animate-spin" /> : <Zap className="w-8 h-8 fill-current" />}
+                </button>
+              ) : isLocalTurn && gameState.hasRolled && !gameState.canRollAgain && (
+                <button
+                  onClick={nextTurn}
+                  className="w-16 h-16 rounded-full bg-zinc-100 text-black flex items-center justify-center shadow-lg transition-all active:scale-90"
+                >
+                  <LogOut className="w-8 h-8" />
+                </button>
+              )}
+            </>
+          )}
+          
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${showChat ? 'bg-orange-500 text-black shadow-lg' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}
+          >
+            <MessageSquare className="w-6 h-6" />
+            {chatHistory.length > 0 && !showChat && (
+              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">!</div>
+            )}
+          </button>
+          
+          {gameState.gameStarted && !gameState.winner && localPlayer && (
+            localPlayer.isBankrupt ? (
+              <button
+                onClick={() => {
+                  if (socket && gameState.roomId) socket.emit('leave-room', gameState.roomId);
+                  resetGame();
+                }}
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-red-600 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] animate-pulse"
+                title="EXIT SECTOR"
+              >
+                <LogOut className="w-6 h-6" />
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowForfeitConfirm(true)}
+                className="w-12 h-12 rounded-full flex items-center justify-center bg-red-900/40 text-red-500 border border-red-500/30 shadow-lg"
+                title="TACTICAL ABORT"
+              >
+                <ShieldAlert className="w-6 h-6" />
+              </button>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Utility Cluster (Top Right - Mobile Only) */}
+      <div className="lg:hidden fixed top-6 right-6 z-[200] flex flex-col gap-3">
         <button
-          onClick={() => {
-            setShowMobileTeam(!showMobileTeam);
-            setShowMobileLog(false);
-            setShowMobileReport(false);
-          }}
-          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileTeam ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          onClick={() => setShowMobileTeam(!showMobileTeam)}
+          className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${showMobileTeam ? 'bg-orange-500 text-black shadow-lg' : 'bg-zinc-900/50 backdrop-blur-md text-zinc-400 border border-zinc-800'}`}
+        >
+          <Users className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => setShowMobileLog(!showMobileLog)}
+          className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${showMobileLog ? 'bg-orange-500 text-black shadow-lg' : 'bg-zinc-900/50 backdrop-blur-md text-zinc-400 border border-zinc-800'}`}
+        >
+          <ScrollText className="w-5 h-5" />
+        </button>
+        <button
+          onClick={() => setShowMobileReport(!showMobileReport)}
+          className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${showMobileReport ? 'bg-orange-500 text-black shadow-lg' : 'bg-zinc-900/50 backdrop-blur-md text-zinc-400 border border-zinc-800'}`}
+        >
+          <Search className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* PC Command Hub (Desktop Sidebar) */}
+      <div className="hidden lg:flex fixed right-8 top-1/2 -translate-y-1/2 z-[200] flex-col gap-4 py-6 px-3 bg-zinc-900/40 backdrop-blur-md border border-zinc-800/50 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all select-none">
+        <button
+          onClick={() => setShowMobileTeam(!showMobileTeam)}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileTeam ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
           title="Team Info"
         >
           <Users className="w-6 h-6" />
         </button>
         <button
-          onClick={() => {
-            setShowMobileLog(!showMobileLog);
-            setShowMobileTeam(false);
-            setShowMobileReport(false);
-          }}
-          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileLog ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          onClick={() => setShowMobileLog(!showMobileLog)}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileLog ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
           title="Mission Log"
         >
           <ScrollText className="w-6 h-6" />
         </button>
-        
-        {/* Persistent Exit/Withdraw Button for Spectators */}
-        {gameState.gameStarted && !gameState.winner && localPlayer?.isBankrupt && (
-          <button
-            onClick={() => {
-              if (socket && gameState.roomId) socket.emit('leave-room', gameState.roomId);
-              resetGame();
-            }}
-            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-600 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] border border-red-500 animate-pulse"
-            title="WITHDRAW FROM SECTOR"
-          >
-            <LogOut className="w-6 h-6" />
-          </button>
-        )}
-
         <button
-          onClick={() => {
-            setShowMobileReport(!showMobileReport);
-            setShowMobileTeam(false);
-            setShowMobileLog(false);
-          }}
-          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileReport ? 'bg-orange-500 text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          onClick={() => setShowMobileReport(!showMobileReport)}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${showMobileReport ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
           title="Intelligence Report"
         >
           <Search className="w-6 h-6" />
         </button>
-
-        {gameState.gameStarted && !gameState.winner && localPlayer && !localPlayer.isBankrupt && (
-          <button
-            onClick={() => {
-              setShowForfeitConfirm(true);
-            }}
-            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-900/40 text-red-500 border border-red-500/30 hover:bg-white hover:text-red-600 shadow-lg relative z-[60]"
-            title="TACTICAL ABORT (FORFEIT)"
-          >
-            <ShieldAlert className="w-6 h-6" />
-          </button>
-        )}
+        <button
+          onClick={() => setShowChat(!showChat)}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 relative ${showChat ? 'bg-orange-500 text-black shadow-[0_0_20px_rgba(249,115,22,0.4)]' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700'}`}
+          title="Tactical Comms"
+        >
+          <MessageSquare className="w-6 h-6" />
+          {chatHistory.length > 0 && !showChat && (
+            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-zinc-950">
+              !
+            </div>
+          )}
+        </button>
+        <div className="w-full h-px bg-zinc-800 my-2" />
+        <button
+          onClick={() => setShowForfeitConfirm(true)}
+          className="w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 bg-red-900/20 text-red-500 border border-red-500/30 hover:bg-red-600 hover:text-white"
+          title="Tactical Abort"
+        >
+          <ShieldAlert className="w-6 h-6" />
+        </button>
       </div>
 
       {/* Chat System */}
@@ -4219,15 +4380,15 @@ const App: React.FC = () => {
         <AnimatePresence>
           {showChat && (
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              className="w-80 h-96 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl flex flex-col overflow-hidden"
+              initial={{ opacity: 0, x: -100, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: -100, scale: 0.95 }}
+              className="fixed bottom-6 lg:bottom-10 left-6 lg:left-10 z-[250] w-[calc(100%-48px)] lg:w-80 h-[50vh] lg:h-auto lg:min-h-[400px] lg:max-h-[600px] bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 rounded-lg lg:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
             >
               <div className="p-3 border-b border-zinc-800 bg-zinc-800/50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-orange-500" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Tactical Comms</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Tactical Transmission</span>
                 </div>
                 <button onClick={() => setShowChat(false)} className="text-zinc-500 hover:text-white">
                   <XCircle className="w-4 h-4" />
@@ -4235,7 +4396,7 @@ const App: React.FC = () => {
               </div>
               
               <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 scrollbar-hide">
-                {gameState.chatMessages.map((msg) => (
+                {(chatHistory || []).map((msg) => (
                   <div key={msg.id} className={`flex gap-2 ${msg.senderId === socket?.id ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className="w-8 h-8 rounded-full border border-zinc-800 overflow-hidden shrink-0 bg-zinc-900 mt-1">
                       <img src={msg.senderAvatar} alt={msg.senderName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -4243,10 +4404,10 @@ const App: React.FC = () => {
                     <div className={`flex flex-col ${msg.senderId === socket?.id ? 'items-end' : 'items-start'} max-w-[80%]`}>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[8px] font-black uppercase text-zinc-500">{msg.senderName}</span>
-                        <span className="text-[8px] text-zinc-600 font-mono">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-[8px] text-zinc-600 font-mono">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}</span>
                       </div>
                       <div className={`px-3 py-2 rounded-sm text-xs ${msg.senderId === socket?.id ? 'bg-orange-500 text-black font-medium' : 'bg-zinc-800 text-zinc-300 border border-zinc-700'}`}>
-                        {msg.text}
+                        {msg.text || 'ERROR: MESSAGE CONTENT MISSING'}
                       </div>
                     </div>
                   </div>
@@ -4257,6 +4418,7 @@ const App: React.FC = () => {
               <div className="p-3 border-t border-zinc-800 bg-zinc-900 flex gap-2">
                 <input
                   type="text"
+                  autoFocus
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
@@ -4274,20 +4436,10 @@ const App: React.FC = () => {
           )}
         </AnimatePresence>
 
-        <button
-          onClick={() => setShowChat(!showChat)}
-          className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all relative landscape:w-10 landscape:h-10 ${showChat ? 'bg-zinc-800 text-orange-500 border border-orange-500/50' : 'bg-orange-500 text-black hover:scale-110'}`}
-        >
-          {showChat ? <XCircle className="w-6 h-6 landscape:w-4 landscape:h-4" /> : <MessageSquare className="w-6 h-6 landscape:w-4 landscape:h-4" />}
-          {!showChat && gameState.chatMessages.length > 0 && (
-            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-zinc-950">
-              {gameState.chatMessages.length > 9 ? '9+' : gameState.chatMessages.length}
-            </div>
-          )}
-        </button>
+
       </div>
 
-      <div className="hidden">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 p-2 flex items-center justify-around z-[100] landscape:hidden">
         <button 
           onClick={() => setActiveTab('board')}
           className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'board' ? 'text-orange-500' : 'text-zinc-500'}`}
@@ -4324,7 +4476,7 @@ const App: React.FC = () => {
             initial={{ opacity: 0, x: -100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -100 }}
-            className="fixed landscape:relative left-20 landscape:left-0 top-10 landscape:top-0 bottom-10 landscape:bottom-0 w-80 landscape:h-full z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r p-6 rounded-2xl landscape:rounded-none shadow-2xl flex flex-col gap-4 overflow-hidden"
+            className="fixed lg:fixed left-0 lg:left-10 top-0 lg:top-10 bottom-0 lg:bottom-10 w-80 lg:h-auto z-[250] bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r p-6 rounded-2xl landscape:rounded-none shadow-2xl flex flex-col gap-4 overflow-hidden"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -4488,10 +4640,10 @@ const App: React.FC = () => {
       <AnimatePresence>
         {showMobileLog && (
           <motion.div 
-            initial={{ opacity: 0, x: -100 }}
+            initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -100 }}
-            className="fixed landscape:relative left-20 landscape:left-0 top-10 landscape:top-0 bottom-10 landscape:bottom-0 w-80 landscape:h-full z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 landscape:border-y-0 landscape:border-l-0 landscape:border-r p-6 rounded-2xl landscape:rounded-none shadow-2xl flex flex-col gap-4 overflow-hidden"
+            exit={{ opacity: 0, x: 100 }}
+            className="fixed lg:fixed right-0 lg:right-10 top-0 lg:top-10 bottom-0 lg:bottom-10 w-80 lg:w-96 lg:h-auto z-[250] bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 landscape:border-y-0 landscape:border-r-0 landscape:border-l p-6 rounded-2xl landscape:rounded-none shadow-2xl flex flex-col gap-4 overflow-hidden"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
@@ -4590,7 +4742,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col gap-1 items-center min-h-[40px]">
                   {isLocalTurn && !currentPlayer?.isAI ? (
                     <>
-                      <div className="flex gap-1 justify-center flex-wrap max-w-[300px]">
+                      <div className="hidden lg:flex gap-1 justify-center flex-wrap max-w-[300px]">
                         {currentPlayer?.inJail && !gameState.hasRolled && (
                           <>
                             <button
@@ -4617,14 +4769,17 @@ const App: React.FC = () => {
                           </>
                         )}
 
-                        <button
-                          onClick={rollDice}
-                          disabled={!isLocalTurn || gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || !!gameState.winner}
-                          className="px-4 py-2.5 bg-orange-500 text-black text-[11px] font-black uppercase italic tracking-widest rounded hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1.5 shadow-xl shadow-orange-500/20"
-                        >
-                          {gameState.isRolling ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : <Zap className="w-4 h-4 fill-black" />}
-                          {gameState.canRollAgain ? 'Roll Again' : 'Roll Dice'}
-                        </button>
+                        {/* Mobile Side-bar Proxy controls - Hidden by default, desktop only */}
+                        <div className="hidden lg:flex flex-col items-center gap-1">
+                          <button
+                            onClick={rollDice}
+                            disabled={!isLocalTurn || gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain) || !!gameState.winner}
+                            className="px-4 py-2.5 bg-orange-500 text-black text-[11px] font-black uppercase italic tracking-widest rounded hover:bg-orange-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-1.5 shadow-xl shadow-orange-500/20"
+                          >
+                            {gameState.isRolling ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : <Zap className="w-4 h-4 fill-black" />}
+                            {gameState.canRollAgain ? 'Roll Again' : 'Roll Dice'}
+                          </button>
+                        </div>
                         
                         {currentPlayer && ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[currentPlayer.position].type) && !tiles[currentPlayer.position].ownerId && !gameState.activeAuction && (
                           <>
@@ -4708,74 +4863,7 @@ const App: React.FC = () => {
         </LayoutGroup>
       </div>
 
-      {/* Action Bar - Contextual Controls */}
-      {activeTab === 'board' && !gameState.winner && !gameState.activeAuction && !gameState.activeTrade && (
-        <div className="lg:hidden bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800 p-2 z-40 flex items-center gap-1.5 overflow-x-auto no-scrollbar shadow-[0_-10px_30px_rgba(0,0,0,0.5)] landscape:border-t-0 landscape:border-l landscape:w-16 landscape:flex-col landscape:h-full landscape:justify-center landscape:p-1">
-          {isLocalTurn ? (
-            <>
-              <button
-                onClick={rollDice}
-                disabled={gameState.isRolling || (gameState.hasRolled && !gameState.canRollAgain)}
-                className="flex-1 min-w-[80px] py-3 bg-orange-500 text-black text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-50 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0 shadow-[0_0_15px_rgba(249,115,22,0.2)]"
-              >
-                <Zap className="w-4 h-4" /> 
-                <span>{gameState.canRollAgain ? 'Again' : 'Roll'}</span>
-              </button>
-              
-              {currentPlayer && ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(tiles[currentPlayer.position].type) && !tiles[currentPlayer.position].ownerId && (
-                <button
-                  onClick={buyProperty}
-                  disabled={currentPlayer.orundum < (tiles[currentPlayer.position].cost || 0)}
-                  className="flex-1 min-w-[80px] py-3 border-2 border-orange-500 text-orange-500 text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-50 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
-                >
-                  <Package className="w-4 h-4" /> 
-                  <span>Buy</span>
-                </button>
-              )}
-
-              <button
-                onClick={() => startAuction(currentPlayer.position)}
-                disabled={!gameState.hasRolled}
-                className="flex-1 min-w-[80px] py-3 border-2 border-zinc-700 text-zinc-400 text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-30 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
-              >
-                <TrendingUp className="w-4 h-4" /> 
-                <span>Auction</span>
-              </button>
-
-              <button
-                onClick={nextTurn}
-                disabled={gameState.isRolling || !gameState.hasRolled || gameState.canRollAgain}
-                className="flex-1 min-w-[80px] py-3 border-2 border-zinc-700 text-zinc-400 text-[9px] font-black uppercase italic tracking-widest rounded-sm flex flex-col items-center justify-center gap-1 disabled:opacity-30 active:scale-95 transition-all landscape:flex-none landscape:h-16 landscape:min-w-0 landscape:w-full landscape:py-1 landscape:gap-0"
-              >
-                <LogOut className="w-4 h-4" /> 
-                <span>End</span>
-              </button>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center px-4">
-               {localPlayer?.isBankrupt ? (
-                 <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Observation State</span>
-               ) : (
-                 <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest animate-pulse">Waiting for Intel...</span>
-               )}
-            </div>
-          )}
-
-          {/* Universal Exit Button for Spectators or Stale States */}
-          {(localPlayer?.isBankrupt || !isLocalTurn) && gameState.gameStarted && (
-            <button 
-              onClick={() => {
-                if (socket && gameState.roomId) socket.emit('leave-room', gameState.roomId);
-                resetGame();
-              }}
-              className="px-3 py-3 md:px-4 bg-red-600/10 border border-red-500/30 text-red-600 font-black uppercase italic tracking-widest rounded-sm hover:bg-red-600 hover:text-white transition-all text-[8px] flex flex-col items-center gap-1 landscape:h-12 landscape:w-full landscape:justify-center"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden md:block">Abort</span>
-            </button>
-          )}
-        </div>
-      )}
+  {/* Mobile Action Bar Removed - Replaced by Action Cluster Hub */}
 
 
       {/* Auction Modal */}
@@ -4790,9 +4878,9 @@ const App: React.FC = () => {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-zinc-900 border border-zinc-800 p-10 rounded-2xl max-w-lg w-full shadow-2xl text-center"
+              className="bg-zinc-900 border border-zinc-800 p-4 sm:p-6 md:p-10 rounded-xl md:rounded-2xl max-w-[320px] sm:max-w-md md:max-w-lg w-full max-h-[85vh] overflow-y-auto no-scrollbar shadow-2xl text-center"
             >
-              <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-2 flex items-center justify-center gap-3">
+              <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter mb-2 flex items-center justify-center gap-3">
                 <TrendingUp className="text-orange-500" /> Sector Auction
               </h2>
               <div className="flex items-center justify-center gap-2 mb-4">
@@ -4914,7 +5002,7 @@ const App: React.FC = () => {
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 20 }}
-              className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] no-scrollbar"
+              className="w-full max-w-[95vw] md:max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl md:rounded-2xl shadow-2xl overflow-y-auto max-h-[85vh] no-scrollbar"
             >
               {(() => {
                 const tile = tiles[gameState.selectedTileId];
@@ -4927,8 +5015,8 @@ const App: React.FC = () => {
                 return (
                   <>
                     <div className="h-4 w-full" style={{ backgroundColor: tile.color || '#333' }} />
-                    <div className="p-8">
-                      <div className="flex justify-between items-start mb-6">
+                    <div className="p-4 md:p-8">
+                      <div className="flex justify-between items-start mb-4 md:mb-6">
                         <div>
                           <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white">{tile.name}</h2>
                           <div className="flex items-center gap-2 mt-1">
@@ -5212,7 +5300,7 @@ const App: React.FC = () => {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-zinc-900 border border-zinc-800 p-10 rounded-2xl max-w-3xl w-full shadow-2xl relative"
+              className="bg-zinc-900 border border-zinc-800 p-3 sm:p-6 md:p-10 rounded-xl md:rounded-2xl max-w-[380px] sm:max-w-xl md:max-w-3xl w-full max-h-[90vh] overflow-y-auto no-scrollbar shadow-2xl relative"
             >
               <button 
                 onClick={() => setGameState(prev => ({ ...prev, activeTrade: null }))}
@@ -5221,7 +5309,7 @@ const App: React.FC = () => {
                 <XCircle className="w-6 h-6" />
               </button>
 
-              <h2 className="text-3xl font-black italic uppercase tracking-tighter mb-2 flex items-center gap-3">
+              <h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter mb-2 flex items-center gap-3">
                 <ArrowLeftRight className="text-orange-500" /> Negotiate Trade
               </h2>
               <div className="mb-6 flex items-center gap-2">
@@ -5456,68 +5544,67 @@ const App: React.FC = () => {
               animate={{ scale: 1, y: 0, rotateY: 0 }}
               exit={{ scale: 0.8, opacity: 0, transition: { duration: 0.2 } }}
               transition={{ type: "spring", damping: 15, stiffness: 100 }}
-              className="relative w-full max-w-[340px] h-auto max-h-[85dvh] bg-zinc-900 border-2 border-zinc-700 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+              className="relative w-full max-w-[90vw] sm:max-w-[500px] h-auto max-h-[90dvh] bg-zinc-900 border-2 border-zinc-700 rounded-xl md:rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col sm:flex-row"
             >
-              {/* Card Image - Shrinkable for mobile safety */}
-              <div className="relative flex-1 min-h-[150px] bg-zinc-950 overflow-hidden shrink">
+              {/* Card Image - Side layout for mobile */}
+              <div className="relative w-full sm:w-[40%] min-h-[120px] sm:min-h-full bg-zinc-950 overflow-hidden shrink-0 border-b sm:border-b-0 sm:border-r border-white/5">
                 <img 
                   src={gameState.activeCard.image} 
                   alt={gameState.activeCard.title} 
                   className="w-full h-full object-cover opacity-90"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t sm:bg-gradient-to-r from-zinc-900/50 via-transparent to-transparent" />
                 
                 {/* Tactical Header Overlay */}
-                <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
-                  <div className="px-2 py-1 bg-orange-500 text-black text-[8px] font-black uppercase tracking-widest rounded-sm">
+                <div className="absolute top-2 left-2 right-2 flex justify-between items-start">
+                  <div className="px-1.5 py-0.5 bg-orange-500 text-black text-[7px] font-black uppercase tracking-widest rounded-sm">
                     {gameState.tiles[currentPlayer?.position || 0].name}
                   </div>
-                  <div className="w-8 h-8 rounded-full border border-white/20 bg-black/50 backdrop-blur-md flex items-center justify-center">
-                    <Info className="w-4 h-4 text-white" />
-                  </div>
                 </div>
               </div>
 
-              {/* Card Details - Scrollable for mobile safety */}
-              <div className="p-6 pt-2 bg-zinc-900 flex-1 overflow-y-auto no-scrollbar flex flex-col gap-3">
-                <div className="space-y-1">
-                  <h3 className="text-xl font-black italic uppercase tracking-tighter text-orange-500 leading-none">
-                    {gameState.activeCard.title}
-                  </h3>
-                  <div className="h-0.5 w-12 bg-orange-500" />
-                </div>
+              {/* Card Details - Main content area */}
+              <div className="p-4 sm:p-5 flex flex-col flex-1 bg-zinc-900 overflow-hidden">
+                <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-3">
+                  <div className="space-y-1">
+                    <h3 className="text-lg sm:text-xl font-black italic uppercase tracking-tighter text-orange-500 leading-none">
+                      {gameState.activeCard.title}
+                    </h3>
+                    <div className="h-0.5 w-10 bg-orange-500" />
+                  </div>
 
-                <div className="text-[10px] text-zinc-400 italic leading-relaxed font-medium">
-                  {gameState.activeCard.flavor}
-                </div>
+                  <div className="text-[9px] sm:text-[10px] text-zinc-400 italic leading-relaxed font-medium">
+                    {gameState.activeCard.flavor}
+                  </div>
 
-                <div className="p-3 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-1">Tactical Effect</div>
-                  <div className="text-[11px] font-bold text-white leading-tight">
-                    {gameState.activeCard.effect}
+                  <div className="p-2 sm:p-3 bg-white/5 border border-white/10 rounded-lg">
+                    <div className="text-[7px] sm:text-[8px] font-black text-white/40 uppercase tracking-widest mb-1">Tactical Effect</div>
+                    <div className="text-[10px] sm:text-[11px] font-bold text-white leading-tight">
+                      {gameState.activeCard.effect}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Action Footer - Fixed at bottom */}
-              <div className="p-6 pt-0 bg-zinc-900 border-t border-white/5 relative z-10">
-                <button
-                  onClick={handleApplyCardEffect}
-                  disabled={currentPlayer?.isAI}
-                  className="w-full py-3 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 active:scale-95 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.3)] flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {currentPlayer?.isAI ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-black" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4" />
-                      Acknowledge
-                    </>
-                  )}
-                </button>
+                {/* Integrated Action Button */}
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <button
+                    onClick={handleApplyCardEffect}
+                    disabled={currentPlayer?.isAI}
+                    className="w-full py-2.5 bg-orange-500 text-black font-black uppercase italic tracking-widest rounded-sm hover:bg-orange-400 active:scale-95 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.3)] flex items-center justify-center gap-2 disabled:opacity-50 text-[10px] sm:text-xs"
+                  >
+                    {currentPlayer?.isAI ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-black" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-3 h-3" />
+                        Acknowledge
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               
               {/* Scanline decoration */}
@@ -5535,7 +5622,7 @@ const App: React.FC = () => {
             initial={{ opacity: 0, x: 100 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 100 }}
-            className="fixed right-20 top-10 bottom-10 w-80 z-50 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
+            className="fixed right-4 md:right-20 top-4 bottom-4 md:top-10 md:bottom-10 w-64 md:w-80 lg:left-10 lg:right-auto z-100 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-4 md:p-6 rounded-2xl shadow-2xl flex flex-col gap-4 overflow-hidden"
           >
             <div className="flex items-center justify-between mb-4">
               <div className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em] flex items-center gap-2">
@@ -5739,8 +5826,8 @@ const App: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2 md:mb-4">Select Avatar</label>
-                  <div className="grid grid-cols-5 gap-2 md:gap-3">
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1 md:mb-4">Select Avatar</label>
+                  <div className="grid grid-cols-4 md:grid-cols-5 gap-2 md:gap-3">
                     {AVATARS.map((avatar) => (
                       <button
                         key={avatar.id}
@@ -5764,6 +5851,24 @@ const App: React.FC = () => {
                     ))}
                   </div>
                 </div>
+                <div className="bg-zinc-800/30 p-4 rounded-xl border border-zinc-800/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Doctor Level</label>
+                    <span className="text-xl font-black italic text-white leading-none">LV. {profile.level || 1}</span>
+                  </div>
+                  <div className="relative w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, (profile.exp / 1000) * 100)}%` }}
+                      className="absolute top-0 left-0 h-full bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]"
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1 items-baseline">
+                    <span className="text-[8px] font-mono text-zinc-500 uppercase">Progression Trace</span>
+                    <span className="text-[9px] font-mono text-zinc-400">{profile.exp || 0} / 1000 EXP</span>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-3 gap-2 md:gap-4">
                   <div className="bg-zinc-800/50 p-2 md:p-4 rounded-lg border border-zinc-800">
                     <div className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest">Matches</div>
@@ -5790,7 +5895,7 @@ const App: React.FC = () => {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-2xl shadow-2xl"
+              className="w-full max-w-[320px] sm:max-w-md bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-xl md:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar"
             >
               <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-8">
                 <h2 className="text-3xl font-black italic uppercase tracking-tighter flex items-center gap-3">
@@ -5908,12 +6013,12 @@ const App: React.FC = () => {
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-full max-w-lg bg-zinc-950 border-2 border-red-600/50 p-8 rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.2)] relative overflow-hidden"
+              className="w-full max-w-[320px] sm:max-w-md md:max-w-lg bg-zinc-950 border-2 border-red-600/50 p-6 md:p-8 rounded-xl md:rounded-2xl shadow-[0_0_50px_rgba(220,38,38,0.2)] relative overflow-hidden max-h-[90vh] overflow-y-auto no-scrollbar"
             >
               <div className="absolute top-0 left-0 w-full h-1 bg-red-600 animate-pulse" />
-              <div className="flex flex-col items-center text-center gap-6 relative z-10">
-                <div className="w-20 h-20 rounded-full bg-red-600/20 flex items-center justify-center border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.4)]"><ShieldAlert className="w-10 h-10 text-red-500" /></div>
-                <div className="space-y-2"><h2 className="text-3xl font-black italic uppercase tracking-tighter text-red-500">Emergency Abort</h2><div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Protocol Level 4: Critical</div></div>
+              <div className="flex flex-col items-center text-center gap-4 md:gap-6 relative z-10">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-red-600/20 flex items-center justify-center border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.4)]"><ShieldAlert className="w-8 h-8 md:w-10 md:h-10 text-red-500" /></div>
+                <div className="space-y-2"><h2 className="text-xl md:text-3xl font-black italic uppercase tracking-tighter text-red-500">Emergency Abort</h2><div className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.5em]">Protocol Level 4: Critical</div></div>
                 <div className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-lg text-zinc-400 text-sm italic">"Doctor, are you absolutely certain you want to terminate this operation? All current progress and assets will be lost. The mission will be marked as a total tactical withdrawal."</div>
                 <div className="flex flex-col sm:flex-row gap-3 w-full">
                   <button onClick={() => { if (gameState.gameMode === 'SINGLEPLAYER') { resetGame(); } else if (localPlayer) { socket?.emit('forfeit-game', { roomId: gameState.roomId, playerId: socket?.id, playerEmail: profile.email }); handleBankruptcy(localPlayer); } setShowForfeitConfirm(false); }} 
@@ -5995,7 +6100,13 @@ const App: React.FC = () => {
                 {/* Debrief Report / Rankings Section - High Capacity Scrollable */}
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between mb-1">
-                    <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Tactical Debrief</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Tactical Debrief</div>
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-500/10 border border-green-500/20 rounded-full animate-pulse">
+                        <CheckCircle2 className="w-2 h-2 text-green-500" />
+                        <span className="text-[7px] font-black text-green-500 uppercase tracking-widest">Records Stabilized</span>
+                      </div>
+                    </div>
                     <div className="text-[8px] font-mono text-zinc-600 uppercase">Sector Performance Data</div>
                   </div>
                   
