@@ -621,7 +621,7 @@ const App: React.FC = () => {
 
       // TACTICAL DOUBLE-WRITE: Sync identity across sectors (Best Effort)
       if (SECTOR === 'VERCEL' && supabase && prev.email) {
-        supabase.from('users').upsert({
+        supabase.from('profiles').upsert({
           email: prev.email,
           name: prev.name,
           level: finalProfile.level,
@@ -6046,6 +6046,57 @@ const App: React.FC = () => {
                             </div>
                             <p className="text-[10px] md:text-xs text-zinc-400 leading-tight mb-2 italic">"{op.description}"</p>
                             <div className="flex items-center gap-2 text-[9px] md:text-[10px] text-zinc-500 border-t border-zinc-800 pt-1"><Zap className="w-3 h-3 text-orange-500" /><span className="font-bold uppercase tracking-tighter">Passive:</span> {op.skill.description}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3 className="text-[10px] md:text-xs font-black text-orange-500 uppercase tracking-[0.3em] mb-4 md:mb-6 border-l-2 border-orange-500 pl-4">Sector Intelligence Report</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {TILES.filter(t => ['PROPERTY', 'TRANSPORT', 'UTILITY'].includes(t.type)).map(tile => (
+                        <div key={tile.id} className="bg-zinc-800/20 border border-zinc-800/50 rounded-xl p-3 relative overflow-hidden group hover:border-zinc-700 transition-all">
+                          <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: tile.color || '#333' }} />
+                          <div className="flex justify-between items-start mb-2 pl-2">
+                            <div>
+                              <div className="text-[10px] font-black italic uppercase tracking-tighter text-white truncate max-w-[120px]">{tile.name}</div>
+                              <div className="text-[7px] text-zinc-500 font-black uppercase tracking-widest">{tile.group} Sector</div>
+                            </div>
+                            <div className="text-[9px] font-mono text-orange-500 font-bold">O{tile.cost}</div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2 pl-2 mt-3 border-t border-zinc-800/50 pt-2">
+                            <div className="flex flex-col">
+                              <span className="text-[6px] text-zinc-600 font-black uppercase tracking-widest leading-none mb-1">Base Rent</span>
+                              <span className="text-[9px] font-mono text-zinc-300">O{tile.rent || 0}</span>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <span className="text-[6px] text-zinc-600 font-black uppercase tracking-widest leading-none mb-1 text-right">Mortgage</span>
+                              <span className="text-[9px] font-mono text-zinc-300">O{tile.mortgage}</span>
+                            </div>
+                          </div>
+
+                          {tile.type === 'PROPERTY' && (
+                            <div className="pl-2 mt-2 grid grid-cols-3 gap-1">
+                              <div className="flex flex-col">
+                                <span className="text-[5px] text-zinc-700 font-black uppercase leading-none">1 Dorm</span>
+                                <span className="text-[7px] font-mono text-zinc-500 italic">O{tile.dorm1}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[5px] text-zinc-700 font-black uppercase leading-none">4 Dorms</span>
+                                <span className="text-[7px] font-mono text-zinc-500 italic">O{tile.dorm4}</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[5px] text-zinc-700 font-black uppercase leading-none">Cmd Ctr</span>
+                                <span className="text-[7px] font-mono text-red-500/70 italic font-bold">O{tile.cmdCtr}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Detail hover indicator */}
+                          <div className="absolute bottom-1 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Info className="w-2.5 h-2.5 text-zinc-700" />
                           </div>
                         </div>
                       ))}

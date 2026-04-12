@@ -70,5 +70,14 @@
     "wins": 0,
     "losses": 0,
     "matches": 0
+  },
+  "doctor@rhodesisland.ri": {
+    "name": "DoctorDoctor",
+    "avatarId": "avatar_doctor",
+    "level": 1,
+    "exp": 0,
+    "wins": 0,
+    "losses": 0,
+    "matches": 0
   }
 }
