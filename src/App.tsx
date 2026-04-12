@@ -1750,9 +1750,12 @@ const App: React.FC = () => {
 
   const isAuctionTurn = gameState.activeAuction && (localPlayer?.id === gameState.activeAuction.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex] || (localPlayer?.email && gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex])?.email === localPlayer.email));
 
-  const startAuction = useCallback((tileId: number, isAiAction = false) => {
-    // STRICT GUARD: Only authorized local player or AI logic can start an auction
-    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
+    // RELAXED GUARD: If an auction is starting, allow human or AI participation
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction && !currentPlayer?.isAI) {
+      // Allow start if the human is declining
+    } else if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) {
+      return;
+    }
 
     // If an auction is already active for this tile, don't restart it
     if (gameState.activeAuction && gameState.activeAuction.tileId === tileId) return;
@@ -1782,11 +1785,11 @@ const App: React.FC = () => {
       return newState;
     });
     addToLog(`Auction started for ${tile.name}.`);
-  }, [gameState.activeAuction, gameState.players, tiles, socket]);
+  }, [gameState.activeAuction, gameState.players, tiles, socket, localPlayer, isLocalTurn]);
 
   const placeBid = useCallback((amount: number, isAiAction = false) => {
-    // STRICT GUARD: Only authorized local player or AI logic can bid
-    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
+    // RELAXED GUARD: Bidding is allowed if it is the local player's turn in the AUCTION, regardless of the main board turn.
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isAuctionTurn && !isAiAction) return;
     const auction = gameState.activeAuction;
     if (!auction || !localPlayer) return;
 
@@ -1848,10 +1851,10 @@ const App: React.FC = () => {
       return newState;
     });
     addToLog(`${bidder.name} bid ${amount} Orundum.`);
-  }, [gameState.activeAuction, gameState.players, tiles, socket]);
+  }, [gameState.activeAuction, gameState.players, tiles, socket, localPlayer, isAuctionTurn]);
 
   const skipBid = useCallback((isAiAction = false) => {
-    if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction) return;
+    if (gameState.gameMode === 'SINGLEPLAYER' && !isAuctionTurn && !isAiAction) return;
     const auction = gameState.activeAuction;
     if (!auction) return;
 
@@ -1921,7 +1924,7 @@ const App: React.FC = () => {
         return newState;
       });
     }
-  }, [gameState.activeAuction, gameState.players, tiles, socket]);
+  }, [gameState.activeAuction, gameState.players, tiles, socket, localPlayer, isAuctionTurn]);
 
   const canTradeProperty = useCallback((tileId: number) => {
     const tile = tiles[tileId];
