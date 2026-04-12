@@ -67,7 +67,7 @@ import {
   deleteDoc,
   updateDoc
 } from 'firebase/firestore';
-import { Player, Tile, GameState, TileType, EventCard, TradeOffer, GameMode } from './types';
+import { Player, Tile, GameState, TileType, EventCard, TradeOffer, GameMode, ChatMessage, AuctionState } from './types';
 import { TILES, STARTING_ORUNDUM, GO_REWARD, TAX_AMOUNT, JAIL_FEE, PLAYER_COLORS, PLAYER_NAMES, BOARD_SIZE, LGD_CARDS, INTEL_CARDS, OPERATORS, AVATARS } from './constants';
 
 const SOUNDS = {
@@ -1750,6 +1750,7 @@ const App: React.FC = () => {
 
   const isAuctionTurn = gameState.activeAuction && (localPlayer?.id === gameState.activeAuction.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex] || (localPlayer?.email && gameState.players.find(p => p.id === gameState.activeAuction?.biddingPlayerIds[gameState.activeAuction.currentPlayerIndex])?.email === localPlayer.email));
 
+  const startAuction = useCallback((tileId: number, isAiAction = false) => {
     // RELAXED GUARD: If an auction is starting, allow human or AI participation
     if (gameState.gameMode === 'SINGLEPLAYER' && !isLocalTurn && !isAiAction && !currentPlayer?.isAI) {
       // Allow start if the human is declining
